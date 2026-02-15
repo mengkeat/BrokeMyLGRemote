@@ -153,11 +153,3 @@ const server = Bun.serve({
 });
 
 console.log(`Server running at http://127.0.0.1:${server.port}`);
-
-const config = await tv.loadConfig();
-if (config) {
-  console.log(`Found saved config for TV at ${config.tvIp}, auto-connecting...`);
-  tv.connect(config.tvIp).catch((e) => {
-    console.log(`Auto-connect failed: ${e.message}`);
-  });
-}

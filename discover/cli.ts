@@ -15,43 +15,60 @@ if (help) {
   process.exit(0);
 }
 
-console.log("Scanning for LG webOS TVs on the network...\n");
+if (ipArg) {
+  console.log(`Connecting to ${ipArg}...`);
+  const connection = new TVConnection();
 
-const tvs = await discoverTVs(8000);
+  try {
+    await connection.connect(ipArg);
+    console.log("Connected successfully.");
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error(`Connection failed: ${message}`);
+    process.exitCode = 1;
+  } finally {
+    connection.disconnect();
+    process.exit(process.exitCode);
+  }
+} else {
+  console.log("Scanning for LG webOS TVs on the network...\n");
 
-if (tvs.length === 0) {
-  console.log("No LG TVs found. Make sure your TV is powered on and on the same network.");
-  process.exit(1);
-}
+  const tvs = await discoverTVs(8000);
 
-console.log(`Found ${tvs.length} TV(s):\n`);
-for (const tv of tvs) {
-  console.log(`  Name : ${tv.name}`);
-  console.log(`  IP   : ${tv.ip}`);
-  console.log(`  UUID : ${tv.uuid}`);
-  console.log();
-}
+  if (tvs.length === 0) {
+    console.log("No LG TVs found. Make sure your TV is powered on and on the same network.");
+    process.exit(1);
+  }
 
-if (!connectAfterScan) {
-  process.exit(0);
-}
+  console.log(`Found ${tvs.length} TV(s):\n`);
+  for (const tv of tvs) {
+    console.log(`  Name : ${tv.name}`);
+    console.log(`  IP   : ${tv.ip}`);
+    console.log(`  UUID : ${tv.uuid}`);
+    console.log();
+  }
 
-const selectedIp = ipArg || (tvs.length === 1 ? tvs[0].ip : null);
-if (!selectedIp) {
-  console.log("Multiple TVs found. Re-run with --ip <tv-ip> to choose which one to connect.");
-  process.exit(1);
-}
+  if (!connectAfterScan) {
+    process.exit(0);
+  }
 
-console.log(`Connecting to ${selectedIp}...`);
-const connection = new TVConnection();
+  const selectedIp = tvs.length === 1 ? tvs[0].ip : null;
+  if (!selectedIp) {
+    console.log("Multiple TVs found. Re-run with --ip <tv-ip> to choose which one to connect.");
+    process.exit(1);
+  }
 
-try {
-  await connection.connect(selectedIp);
-  console.log("Connected successfully.");
-} catch (e) {
-  const message = e instanceof Error ? e.message : String(e);
-  console.error(`Connection failed: ${message}`);
-  process.exitCode = 1;
-} finally {
-  connection.disconnect();
+  console.log(`Connecting to ${selectedIp}...`);
+  const connection = new TVConnection();
+
+  try {
+    await connection.connect(selectedIp);
+    console.log("Connected successfully.");
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error(`Connection failed: ${message}`);
+    process.exitCode = 1;
+  } finally {
+    connection.disconnect();
+  }
 }

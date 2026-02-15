@@ -43,9 +43,6 @@ ws.onmessage = (event) => {
   switch (msg.type) {
     case "status":
       updateStatus(msg.data.status);
-      if (msg.data.tvIp) {
-        tvIpInput.value = msg.data.tvIp;
-      }
       break;
     case "discovered":
       renderDiscoveredTVs(msg.tvs);

@@ -13,6 +13,8 @@ export class TVConnection {
   private clientKey: string | null = null;
   private msgId = 0;
   private pendingRequests = new Map<string, (resp: LGResponse) => void>();
+  private subscriptionIds = new Set<string>();
+  private registrationRequestId: string | null = null;
   private currentApp: string | null = null;
   private volume: number | null = null;
   private muted: boolean | null = null;
@@ -85,17 +87,19 @@ export class TVConnection {
       this.clientKey = config.clientKey;
     }
 
-    const wsUrls = [`wss://${ip}:3001`, `ws://${ip}:3000`, `wss://${ip}:3000`];
+    const wsUrls = [`wss://${ip}:3001`, `wss://${ip}:3000`, `ws://${ip}:3000`];
     const errors: string[] = [];
 
     for (const wsUrl of wsUrls) {
       this.setStatus("connecting");
+      console.log(`  Trying ${wsUrl}...`);
       try {
         await this.connectWebSocket(wsUrl);
         return;
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         errors.push(`${wsUrl} -> ${message}`);
+        console.log(`  Failed: ${message}`);
         this.mainWs?.close();
         this.mainWs = null;
         this.pointerWs?.close();
@@ -123,12 +127,18 @@ export class TVConnection {
 
       const WebSocketCtor = WebSocket as unknown as new (url: string, options?: unknown) => WebSocket;
       this.mainWs = wsUrl.startsWith("wss://")
-        ? new WebSocketCtor(wsUrl, { tls: { rejectUnauthorized: false } })
+        ? new WebSocketCtor(wsUrl, {
+          tls: {
+            rejectUnauthorized: false,
+            serverName: this.tvIp ?? undefined,
+          },
+        })
         : new WebSocketCtor(wsUrl);
 
       this.mainWs.onopen = () => {
         clearTimeout(timeout);
         this.setStatus("pairing");
+        console.log("  Connected, registering...");
         this.register().then(() => {
           settled = true;
           resolve();
@@ -144,7 +154,8 @@ export class TVConnection {
 
       this.mainWs.onerror = (err) => {
         console.error("Main WS error:", err);
-        fail(`WebSocket handshake failed at ${wsUrl}`);
+        const details = err instanceof Error ? err.message : String(err);
+        fail(`WebSocket connection failed at ${wsUrl}: ${details}`);
       };
 
       this.mainWs.onclose = () => {
@@ -166,21 +177,22 @@ export class TVConnection {
     }
 
     const id = this.nextId();
-    const regMsg = {
-      id,
-      type: "register",
-      payload,
-    };
-
-    this.mainWs!.send(JSON.stringify(regMsg));
+    this.registrationRequestId = id;
 
     return new Promise<void>((resolve, reject) => {
+      console.log("  Waiting for pairing response (check TV for prompt)...");
       const handler = (resp: LGResponse) => {
-        if (resp.type === "registered") {
-          this.clientKey = resp.payload?.["client-key"] as string;
-          this.saveConfig();
+        const returnedClientKey = resp.payload?.["client-key"];
+        if (
+          resp.type === "registered"
+          || (resp.type === "response" && typeof returnedClientKey === "string" && returnedClientKey.length > 0)
+        ) {
+          if (typeof returnedClientKey === "string" && returnedClientKey.length > 0) {
+            this.clientKey = returnedClientKey;
+          }
+          this.saveConfig().catch(() => {});
           this.setStatus("ready");
-          this.setupPointerSocket();
+          this.setupPointerSocket().catch(() => {}); // Non-blocking
           this.subscribeToStatus();
           resolve();
         } else if (resp.type === "error") {
@@ -190,9 +202,17 @@ export class TVConnection {
       };
       this.pendingRequests.set(id, handler);
 
+      const regMsg = {
+        id,
+        type: "register",
+        payload,
+      };
+      this.mainWs!.send(JSON.stringify(regMsg));
+
       setTimeout(() => {
         if (this.pendingRequests.has(id)) {
           this.pendingRequests.delete(id);
+          this.registrationRequestId = null;
           reject(new Error("Registration timed out - check TV for pairing prompt"));
         }
       }, 30000);
@@ -204,7 +224,19 @@ export class TVConnection {
       const resp = JSON.parse(data) as LGResponse;
       const handler = this.pendingRequests.get(resp.id);
       if (handler) {
-        this.pendingRequests.delete(resp.id);
+        const isSubscription = this.subscriptionIds.has(resp.id);
+        const isRegistration = this.registrationRequestId === resp.id;
+        const registrationDone = resp.type === "registered"
+          || resp.type === "error"
+          || typeof resp.payload?.["client-key"] === "string";
+
+        if (!isSubscription && !isRegistration) {
+          this.pendingRequests.delete(resp.id);
+        } else if (isRegistration && registrationDone) {
+          this.pendingRequests.delete(resp.id);
+          this.registrationRequestId = null;
+        }
+
         handler(resp);
         return;
       }
@@ -238,7 +270,15 @@ export class TVConnection {
         return;
       }
 
-      this.pointerWs = new WebSocket(socketPath);
+      const WebSocketCtor = WebSocket as unknown as new (url: string, options?: unknown) => WebSocket;
+      this.pointerWs = socketPath.startsWith("wss://")
+        ? new WebSocketCtor(socketPath, {
+          tls: {
+            rejectUnauthorized: false,
+            serverName: this.tvIp ?? undefined,
+          },
+        })
+        : new WebSocketCtor(socketPath);
       this.pointerWs.binaryType = "arraybuffer";
 
       this.pointerWs.onerror = (err) => {
@@ -248,14 +288,15 @@ export class TVConnection {
       this.pointerWs.onclose = () => {
         this.pointerWs = null;
       };
-    } catch (e) {
-      console.error("Failed to setup pointer socket:", e);
+    } catch {
+      // Pointer socket setup failed - not critical, mouse control won't work
     }
   }
 
   private async subscribeToStatus() {
     try {
       const fgId = this.nextId();
+      this.subscriptionIds.add(fgId);
       this.pendingRequests.set(fgId, (resp) => {
         if (resp.payload?.appId) {
           this.currentApp = resp.payload.appId as string;
@@ -269,6 +310,7 @@ export class TVConnection {
       }));
 
       const volId = this.nextId();
+      this.subscriptionIds.add(volId);
       this.pendingRequests.set(volId, (resp) => {
         if (resp.payload && "volume" in resp.payload) {
           this.volume = resp.payload.volume as number;
@@ -333,5 +375,8 @@ export class TVConnection {
     this.currentApp = null;
     this.volume = null;
     this.muted = null;
+    this.pendingRequests.clear();
+    this.subscriptionIds.clear();
+    this.registrationRequestId = null;
   }
 }

@@ -49,7 +49,7 @@ export interface LGResponse {
 }
 
 export const LG_HANDSHAKE_PAYLOAD = {
-  "force-pairing": false,
+  "forcePairing": false,
   "pairingType": "PROMPT",
   "manifest": {
     "manifestVersion": 1,
