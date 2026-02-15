@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Discover LG TVs</title>
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    .tv-card {
+      background: #16213e;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .tv-card .info { flex: 1; }
+    .tv-card .name { font-weight: 600; font-size: 1.1rem; }
+    .tv-card .ip { color: #64748b; font-size: 0.9rem; margin-top: 2px; }
+    .tv-card .uuid { color: #475569; font-size: 0.75rem; margin-top: 2px; word-break: break-all; }
+    #scan-btn { margin-bottom: 16px; width: 100%; padding: 12px; font-size: 1rem; }
+    #scan-status { text-align: center; color: #64748b; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <h1>Discover LG TVs</h1>
+    <button id="scan-btn">Scan Network</button>
+    <div id="scan-status"></div>
+    <div id="tv-list"></div>
+    <nav>
+      <a href="/">Remote Control</a>
+      <a href="/dashboard">Dashboard</a>
+    </nav>
+  </div>
+
+  <script type="module" src="app.ts"></script>
+</body>
+</html>

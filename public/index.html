@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LG TV Remote</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <h1>LG TV Remote</h1>
+
+    <div id="status-bar">
+      <span id="status-dot"></span>
+      <span id="status-text">Disconnected</span>
+    </div>
+
+    <div id="connection">
+      <input type="text" id="tv-ip" placeholder="TV IP address (e.g. 192.168.1.100)">
+      <button id="connect-btn">Connect</button>
+      <button id="discover-btn">Discover TVs</button>
+    </div>
+
+    <div id="discovered-list"></div>
+
+    <div id="controls">
+      <h2>Touchpad</h2>
+      <p class="hint">Move mouse inside pad. Click to left-click. Use arrow keys, Enter, Backspace for remote keys.</p>
+      <div id="touchpad"></div>
+
+      <h2>Text Input</h2>
+      <div id="text-controls">
+        <input type="text" id="text-input" placeholder="Type text to send to TV...">
+        <button id="send-text-btn">Send</button>
+      </div>
+    </div>
+
+    <nav>
+      <a href="/dashboard">Dashboard</a>
+    </nav>
+  </div>
+
+  <script type="module" src="app.ts"></script>
+</body>
+</html>

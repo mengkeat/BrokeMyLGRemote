@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LG TV Dashboard</title>
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    .card {
+      background: #16213e;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .card h3 {
+      color: #c084fc;
+      margin-bottom: 8px;
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .card .value {
+      font-size: 1.4rem;
+      font-weight: 600;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .tv-list-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 12px;
+      background: #0f172a;
+      border-radius: 6px;
+      margin-bottom: 6px;
+    }
+    .tv-list-item button {
+      padding: 4px 12px;
+      font-size: 12px;
+    }
+    #refresh-btn {
+      margin-bottom: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <h1>TV Dashboard</h1>
+
+    <div id="status-bar">
+      <span id="status-dot"></span>
+      <span id="status-text">Disconnected</span>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h3>TV IP</h3>
+        <div class="value" id="tv-ip">--</div>
+      </div>
+      <div class="card">
+        <h3>Connection</h3>
+        <div class="value" id="tv-status">--</div>
+      </div>
+      <div class="card">
+        <h3>Current App</h3>
+        <div class="value" id="tv-app">--</div>
+      </div>
+      <div class="card">
+        <h3>Volume</h3>
+        <div class="value" id="tv-volume">--</div>
+      </div>
+    </div>
+
+    <h2>Discovered TVs</h2>
+    <button id="refresh-btn">Scan Network</button>
+    <div id="tv-list"></div>
+
+    <nav>
+      <a href="/">Remote Control</a>
+    </nav>
+  </div>
+
+  <script type="module" src="app.ts"></script>
+</body>
+</html>

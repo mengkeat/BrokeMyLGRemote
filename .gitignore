@@ -1,0 +1,4 @@
+node_modules/
+tv_config.json
+.env.local
+bun.lockb
