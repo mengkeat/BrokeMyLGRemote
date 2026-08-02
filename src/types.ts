@@ -11,6 +11,9 @@ export interface DiscoveredTV {
 
 export type TVConnectionStatus = "disconnected" | "connecting" | "pairing" | "ready";
 
+/** How the TV wants the user to authenticate. `PROMPT` = approve on screen, `PIN` = enter a PIN. */
+export type PairingType = "PROMPT" | "PIN";
+
 export interface TVStatus {
   status: TVConnectionStatus;
   tvIp: string | null;
@@ -26,6 +29,7 @@ export type ControlMessage =
   | { type: "send_text"; text: string }
   | { type: "discover" }
   | { type: "connect_tv"; ip: string }
+  | { type: "submit_pairing_pin"; pin: string }
   | { type: "get_status" };
 
 export type ServerMessage =
@@ -44,11 +48,59 @@ export interface LGRequest {
 export interface LGResponse {
   id: string;
   type: string;
+  /** Present and `false` when a `request`/`subscribe`/`register` call is rejected. */
+  returnValue?: boolean;
+  /** TV-side error text (e.g. "AUTH_ERROR", "PIN code mismatch"). */
   error?: string;
+  /** Human-readable error text returned by some endpoints. */
+  errorText?: string;
   payload?: Record<string, unknown>;
 }
 
-export const LG_HANDSHAKE_PAYLOAD = {
+/**
+ * The signed portion of the manifest is an inseparable LG vendor fixture.
+ *
+ * `manifest.signed` and `manifest.signatures` are bound together: the signature
+ * in `signatures` was computed by LG over a specific `signed` blob. Changing any
+ * field inside `signed` (names, permissions, serial, etc.) invalidates that
+ * signature, and webOS firmware that validates the signature will reject the
+ * registration *before* pairing is offered. Do not edit fields inside `signed`
+ * independently of `signatures` — restore both from the canonical fixture instead.
+ */
+export interface LGSignature {
+  signatureVersion: number;
+  signature: string;
+}
+
+export interface LGSignedManifest {
+  created: string;
+  appId: string;
+  vendorId: string;
+  localizedAppNames: Record<string, string>;
+  localizedVendorNames: Record<string, string>;
+  permissions: string[];
+  serial: string;
+}
+
+export interface LGManifest {
+  manifestVersion: number;
+  appVersion: string;
+  /** Vendor fixture — do not edit fields inside `signed` (see file header note). */
+  signed: LGSignedManifest;
+  /** Unsigned permission requests; extra entries are ignored by the TV. */
+  permissions: string[];
+  signatures: LGSignature[];
+}
+
+export interface LGRegistrationPayload {
+  forcePairing: boolean;
+  pairingType: PairingType;
+  manifest: LGManifest;
+  /** Optional saved client key; only present when reconnecting a known TV. */
+  "client-key"?: string;
+}
+
+export const LG_HANDSHAKE_PAYLOAD: LGRegistrationPayload = {
   "forcePairing": false,
   "pairingType": "PROMPT",
   "manifest": {
@@ -59,9 +111,9 @@ export const LG_HANDSHAKE_PAYLOAD = {
       "appId": "com.lge.test",
       "vendorId": "com.lge",
       "localizedAppNames": {
-        "": "LG Remote",
-        "ko-KR": "LG Remote",
-        "zxx-XX": "LG Remote"
+        "": "LG Remote App",
+        "ko-KR": "리모컨 앱",
+        "zxx-XX": "ЛГ Rэмotэ AПП"
       },
       "localizedVendorNames": {
         "": "LG Electronics"
@@ -82,21 +134,7 @@ export const LG_HANDSHAKE_PAYLOAD = {
         "READ_UPDATE_INFO",
         "UPDATE_FROM_REMOTE_APP",
         "READ_LGE_TV_INPUT_EVENTS",
-        "READ_TV_CURRENT_TIME",
-        "READ_COUNTRY_INFO",
-        "READ_SETTINGS",
-        "CONTROL_TV_SCREEN",
-        "CONTROL_TV_STANBY",
-        "CONTROL_FAVORITE_GROUP",
-        "CONTROL_USER_INFO",
-        "CHECK_PAIRING_TV_STATE",
-        "CONTROL_DISPLAY",
-        "CONTROL_INPUT_JOYSTICK",
-        "CONTROL_INPUT_MEDIA_RECORDING",
-        "CONTROL_INPUT_MEDIA_PLAYBACK",
-        "CONTROL_INPUT_TV",
-        "CONTROL_AUDIO_PLAYBACK",
-        "CONTROL_AUDIO_MODE"
+        "READ_TV_CURRENT_TIME"
       ],
       "serial": "2f930e2d2cfe083771f68e4fe7bb07"
     },
@@ -143,3 +181,24 @@ export const LG_HANDSHAKE_PAYLOAD = {
     ]
   }
 };
+
+/**
+ * Build the registration payload for a TV connection.
+ *
+ * `clientKey` is omitted entirely for first-time pairing (which is what triggers
+ * the on-screen prompt / PIN challenge) and included under the wire name
+ * `client-key` only when reconnecting a previously paired TV. The vendor manifest
+ * is deep-copied so callers can never mutate the shared fixture.
+ */
+export function buildRegistrationPayload(clientKey?: string): LGRegistrationPayload {
+  const manifest = structuredClone(LG_HANDSHAKE_PAYLOAD.manifest);
+  const payload: LGRegistrationPayload = {
+    forcePairing: LG_HANDSHAKE_PAYLOAD.forcePairing,
+    pairingType: LG_HANDSHAKE_PAYLOAD.pairingType,
+    manifest,
+  };
+  if (clientKey) {
+    payload["client-key"] = clientKey;
+  }
+  return payload;
+}

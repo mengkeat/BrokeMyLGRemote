@@ -11,8 +11,8 @@
     "skipLibCheck": true,
     "isolatedModules": true,
     "resolveJsonModule": true,
-    "types": ["bun-types"]
+    "types": ["bun"]
   },
-  "include": ["src/**/*", "discover/discover.ts"],
+  "include": ["src/**/*", "discover/**/*", "test/**/*"],
   "exclude": ["node_modules"]
 }

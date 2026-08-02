@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { TVConfig, TVConnectionStatus, TVStatus, LGResponse } from "./types";
-import { LG_HANDSHAKE_PAYLOAD } from "./types";
+import { buildRegistrationPayload } from "./types";
 
 const CONFIG_PATH = join(import.meta.dir, "..", "tv_config.json");
 
@@ -171,10 +171,7 @@ export class TVConnection {
   }
 
   private async register() {
-    const payload: Record<string, unknown> = { ...LG_HANDSHAKE_PAYLOAD };
-    if (this.clientKey) {
-      payload["client-key"] = this.clientKey;
-    }
+    const payload = buildRegistrationPayload(this.clientKey ?? undefined);
 
     const id = this.nextId();
     this.registrationRequestId = id;
