@@ -76,7 +76,7 @@ const server = Bun.serve({
 
     if (url.pathname === "/api/discover") {
       try {
-        const tvs = await discoverTVs(5000);
+        const tvs = await discoverTVs(8000);
         return Response.json(tvs);
       } catch (e: any) {
         return Response.json({ error: e.message }, { status: 500 });
@@ -141,7 +141,7 @@ const server = Bun.serve({
             }
             break;
           case "discover": {
-            const tvs = await discoverTVs(5000);
+            const tvs = await discoverTVs(8000);
             ws.send(JSON.stringify({ type: "discovered", tvs } satisfies ServerMessage));
             break;
           }
