@@ -17,6 +17,8 @@ export type PairingType = "PROMPT" | "PIN";
 export interface TVStatus {
   status: TVConnectionStatus;
   tvIp: string | null;
+  /** Active pairing method while `status === "pairing"`; null otherwise. */
+  pairingType: PairingType | null;
   currentApp: string | null;
   volume: number | null;
   muted: boolean | null;

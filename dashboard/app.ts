@@ -8,6 +8,10 @@ const tvAppEl = document.getElementById("tv-app")!;
 const tvVolumeEl = document.getElementById("tv-volume")!;
 const tvList = document.getElementById("tv-list")!;
 const refreshBtn = document.getElementById("refresh-btn")!;
+const pairingNotice = document.getElementById("pairing-notice")!;
+const pinPairing = document.getElementById("pin-pairing")!;
+const pinInput = document.getElementById("pin-input") as HTMLInputElement;
+const submitPinBtn = document.getElementById("submit-pin-btn")!;
 
 function send(msg: object) {
   if (ws.readyState === WebSocket.OPEN) {
@@ -34,6 +38,17 @@ function updateStatus(data: any) {
   } else {
     tvVolumeEl.textContent = "--";
   }
+
+  // PIN entry is only relevant while the TV is actively requesting a PIN.
+  const pinNeeded = data.status === "pairing" && data.pairingType === "PIN";
+  pinPairing.hidden = !pinNeeded;
+  if (!pinNeeded) {
+    pinInput.value = "";
+    submitPinBtn.disabled = false;
+  }
+  if (data.status !== "pairing") {
+    pairingNotice.hidden = true;
+  }
 }
 
 ws.onopen = () => {
@@ -49,6 +64,10 @@ ws.onmessage = (event) => {
       break;
     case "discovered":
       renderTVs(msg.tvs);
+      break;
+    case "pairing":
+      pairingNotice.textContent = msg.message;
+      pairingNotice.hidden = !msg.message;
       break;
     case "error":
       console.error("Server error:", msg.message);
@@ -82,3 +101,19 @@ refreshBtn.onclick = () => {
   tvList.innerHTML = '<div class="tv-list-item"><span>Scanning...</span></div>';
   send({ type: "discover" });
 };
+
+function submitPin() {
+  const pin = pinInput.value.trim();
+  if (!/^\d{4,8}$/.test(pin)) {
+    pairingNotice.textContent = "PIN must be 4-8 digits.";
+    pairingNotice.hidden = false;
+    return;
+  }
+  submitPinBtn.disabled = true;
+  send({ type: "submit_pairing_pin", pin });
+}
+
+submitPinBtn.onclick = submitPin;
+pinInput.addEventListener("keydown", (e: KeyboardEvent) => {
+  if (e.key === "Enter") submitPin();
+});

@@ -133,6 +133,13 @@ const server = Bun.serve({
           case "send_text":
             await tv.sendInput(msg.text);
             break;
+          case "submit_pairing_pin":
+            try {
+              await tv.submitPairingPin(msg.pin);
+            } catch (e: any) {
+              ws.send(JSON.stringify({ type: "error", message: e.message } satisfies ServerMessage));
+            }
+            break;
           case "discover": {
             const tvs = await discoverTVs(5000);
             ws.send(JSON.stringify({ type: "discovered", tvs } satisfies ServerMessage));

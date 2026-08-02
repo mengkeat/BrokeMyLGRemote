@@ -6,6 +6,10 @@ const tvIpInput = document.getElementById("tv-ip") as HTMLInputElement;
 const connectBtn = document.getElementById("connect-btn")!;
 const discoverBtn = document.getElementById("discover-btn")!;
 const discoveredList = document.getElementById("discovered-list")!;
+const pairingNotice = document.getElementById("pairing-notice")!;
+const pinPairing = document.getElementById("pin-pairing")!;
+const pinInput = document.getElementById("pin-input") as HTMLInputElement;
+const submitPinBtn = document.getElementById("submit-pin-btn")!;
 const touchpad = document.getElementById("touchpad")!;
 const textInput = document.getElementById("text-input") as HTMLInputElement;
 const sendTextBtn = document.getElementById("send-text-btn")!;
@@ -26,15 +30,28 @@ function send(msg: object) {
   }
 }
 
-function updateStatus(status: string) {
-  statusDot.className = status;
+function updateStatus(data: { status: string; pairingType?: string | null }) {
+  statusDot.className = data.status;
   const labels: Record<string, string> = {
     disconnected: "Disconnected",
     connecting: "Connecting...",
     pairing: "Pairing - check TV screen",
     ready: "Ready",
   };
-  statusText.textContent = labels[status] || status;
+  statusText.textContent = labels[data.status] || data.status;
+
+  // Show the PIN entry only when the TV has requested PIN pairing.
+  const pinNeeded = data.status === "pairing" && data.pairingType === "PIN";
+  pinPairing.hidden = !pinNeeded;
+  if (!pinNeeded) {
+    pinInput.value = "";
+    submitPinBtn.disabled = false;
+  }
+
+  // Clear the pairing notice once pairing is done.
+  if (data.status !== "pairing") {
+    pairingNotice.hidden = true;
+  }
 }
 
 ws.onmessage = (event) => {
@@ -42,10 +59,14 @@ ws.onmessage = (event) => {
 
   switch (msg.type) {
     case "status":
-      updateStatus(msg.data.status);
+      updateStatus(msg.data);
       break;
     case "discovered":
       renderDiscoveredTVs(msg.tvs);
+      break;
+    case "pairing":
+      pairingNotice.textContent = msg.message;
+      pairingNotice.hidden = !msg.message;
       break;
     case "error":
       console.error("Server error:", msg.message);
@@ -53,7 +74,7 @@ ws.onmessage = (event) => {
   }
 };
 
-ws.onclose = () => updateStatus("disconnected");
+ws.onclose = () => updateStatus({ status: "disconnected" });
 
 function renderDiscoveredTVs(tvs: Array<{ name: string; ip: string }>) {
   discoveredList.innerHTML = "";
@@ -136,4 +157,21 @@ textInput.addEventListener("keydown", (e: KeyboardEvent) => {
   if (e.key === "Enter") {
     sendTextBtn.click();
   }
+});
+
+// PIN pairing submission
+function submitPin() {
+  const pin = pinInput.value.trim();
+  if (!/^\d{4,8}$/.test(pin)) {
+    pairingNotice.textContent = "PIN must be 4-8 digits.";
+    pairingNotice.hidden = false;
+    return;
+  }
+  submitPinBtn.disabled = true; // block duplicate submissions until state changes
+  send({ type: "submit_pairing_pin", pin });
+}
+
+submitPinBtn.onclick = submitPin;
+pinInput.addEventListener("keydown", (e: KeyboardEvent) => {
+  if (e.key === "Enter") submitPin();
 });

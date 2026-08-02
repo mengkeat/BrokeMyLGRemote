@@ -23,6 +23,18 @@
 
     <div id="discovered-list"></div>
 
+    <div id="pairing-notice" class="notice" hidden></div>
+
+    <div id="pin-pairing" hidden>
+      <h2>PIN Pairing</h2>
+      <p class="hint">Enter the PIN shown on the TV screen.</p>
+      <div id="pin-controls">
+        <input type="text" id="pin-input" inputmode="numeric" autocomplete="off"
+               pattern="[0-9]*" maxlength="8" placeholder="PIN">
+        <button id="submit-pin-btn">Submit PIN</button>
+      </div>
+    </div>
+
     <div id="controls">
       <h2>Touchpad</h2>
       <p class="hint">Move mouse inside pad. Click to left-click. Use arrow keys, Enter, Backspace for remote keys.</p>

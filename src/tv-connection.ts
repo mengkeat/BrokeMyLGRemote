@@ -6,6 +6,7 @@ import type {
   TVStatus,
   LGResponse,
   LGRegistrationPayload,
+  PairingType,
 } from "./types";
 import { buildRegistrationPayload } from "./types";
 
@@ -137,6 +138,10 @@ export class TVConnection {
   private usedSavedKey = false;
   /** Guards against more than one keyless recovery attempt per connection. */
   private keylessRetryUsed = false;
+  /** Active pairing mode while status is "pairing"; null otherwise. */
+  private pairingType: PairingType | null = null;
+  /** True once a PIN has been sent for the current PIN pairing (blocks dupes). */
+  private pinSubmitted = false;
 
   constructor(options: TVConnectionOptions = {}) {
     this.socketFactory = options.socketFactory ?? defaultSocketFactory;
@@ -160,6 +165,7 @@ export class TVConnection {
     return {
       status: this.status,
       tvIp: this.tvIp,
+      pairingType: this.pairingType,
       currentApp: this.currentApp,
       volume: this.volume,
       muted: this.muted,
@@ -213,6 +219,8 @@ export class TVConnection {
     this.clientKey = null;
     this.usedSavedKey = false;
     this.keylessRetryUsed = false;
+    this.pairingType = null;
+    this.pinSubmitted = false;
 
     const rawConfig = await this.loadConfig();
     if (isValidConfig(rawConfig)) {
@@ -347,6 +355,8 @@ export class TVConnection {
     const payload: LGRegistrationPayload = buildRegistrationPayload(this.clientKey ?? undefined);
     const id = this.nextId();
     this.registrationRequestId = id;
+    this.pairingType = "PROMPT";
+    this.pinSubmitted = false;
     this.setStatus("pairing");
     console.log(`  Registering${this.clientKey ? " with saved key" : " (fresh pairing)"}...`);
 
@@ -354,6 +364,8 @@ export class TVConnection {
       const registrationTimer = setTimeout(() => {
         this.pendingRequests.delete(id);
         if (this.registrationRequestId === id) this.registrationRequestId = null;
+        this.pairingType = null;
+        this.pinSubmitted = false;
         reject(new Error("Registration timed out - check TV for pairing prompt"));
       }, 30000);
 
@@ -369,6 +381,8 @@ export class TVConnection {
           if (typeof returnedClientKey === "string" && returnedClientKey.length > 0) {
             this.clientKey = returnedClientKey;
           }
+          this.pairingType = null;
+          this.pinSubmitted = false;
           this.saveConfig().catch((e) => {
             const reason = e instanceof Error ? e.message : String(e);
             console.error("  Failed to save TV config:", reason);
@@ -384,13 +398,27 @@ export class TVConnection {
           clearTimeout(registrationTimer);
           this.pendingRequests.delete(id);
           this.registrationRequestId = null;
+          this.pairingType = null;
+          this.pinSubmitted = false;
           this.setStatus("disconnected");
           reject(new RegistrationRejectedError(
             resp.error || resp.errorText || "Registration rejected by TV",
             resp.error,
           ));
+        } else if (resp.type === "response" && resp.payload?.pairingType === "PIN") {
+          // The TV wants PIN pairing: keep the registration handler open and ask
+          // the UI for the PIN, then keep waiting for the registered response
+          // that follows a correct ssap://pairing/setPin.
+          this.pairingType = "PIN";
+          this.setStatus("pairing");
+          console.log("  TV requires a PIN; awaiting PIN entry.");
+          this.notify("Enter the PIN displayed on the TV to complete pairing.");
+        } else if (resp.type === "response" && resp.payload?.pairingType === "PROMPT") {
+          this.pairingType = "PROMPT";
+          this.setStatus("pairing");
+          this.notify("Approve the pairing prompt on the TV screen.");
         }
-        // Intermediate response (e.g. pairing-type negotiation) - keep waiting.
+        // Other intermediate responses - keep waiting for a terminal one.
       };
       this.pendingRequests.set(id, handler);
 
@@ -544,6 +572,36 @@ export class TVConnection {
     });
   }
 
+  /**
+   * Submit the on-screen PIN during PIN pairing. Validates locally, then sends
+   * `ssap://pairing/setPin`. The pending registration resolves/rejects from its
+   * own handler afterwards. The PIN is never logged or broadcast.
+   */
+  async submitPairingPin(pin: string) {
+    if (this.status !== "pairing") {
+      throw new Error("Cannot submit a PIN: no pairing is in progress");
+    }
+    if (this.pairingType !== "PIN") {
+      throw new Error("Cannot submit a PIN: the TV did not request PIN pairing");
+    }
+    if (this.pinSubmitted) {
+      throw new Error("A PIN has already been submitted for this pairing");
+    }
+    if (!/^\d{4,8}$/.test(pin.trim())) {
+      throw new Error("PIN must be 4-8 digits");
+    }
+    if (!this.mainWs || this.mainWs.readyState !== SOCKET_OPEN) {
+      throw new Error("Not connected to TV");
+    }
+    this.pinSubmitted = true;
+    this.mainWs.send(JSON.stringify({
+      id: this.nextId(),
+      type: "request",
+      uri: "ssap://pairing/setPin",
+      payload: { pin: pin.trim() },
+    }));
+  }
+
   disconnect() {
     this.mainWs?.close();
     this.pointerWs?.close();
@@ -552,6 +610,8 @@ export class TVConnection {
     this.clientKey = null;
     this.usedSavedKey = false;
     this.keylessRetryUsed = false;
+    this.pairingType = null;
+    this.pinSubmitted = false;
     this.setStatus("disconnected");
     this.currentApp = null;
     this.volume = null;

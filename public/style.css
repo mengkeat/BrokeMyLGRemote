@@ -164,3 +164,37 @@ nav a {
 nav a:hover {
   text-decoration: underline;
 }
+
+.notice {
+  padding: 8px 12px;
+  background: #1e293b;
+  border-left: 3px solid #3b82f6;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #cbd5e1;
+}
+
+#pin-pairing {
+  padding: 12px;
+  background: #16213e;
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+#pin-controls {
+  display: flex;
+  gap: 8px;
+}
+
+#pin-controls input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  background: #0f172a;
+  color: #e0e0e0;
+  font-size: 14px;
+  letter-spacing: 4px;
+  text-align: center;
+}

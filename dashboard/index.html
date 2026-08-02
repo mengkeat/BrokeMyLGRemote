@@ -78,6 +78,17 @@
     <button id="refresh-btn">Scan Network</button>
     <div id="tv-list"></div>
 
+    <div id="pairing-notice" class="card" hidden style="border-left:3px solid #3b82f6;font-size:13px;"></div>
+    <div id="pin-pairing" class="card" hidden>
+      <h3>PIN Pairing</h3>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input type="text" id="pin-input" inputmode="numeric" autocomplete="off"
+               pattern="[0-9]*" maxlength="8" placeholder="PIN"
+               style="flex:1;padding:8px;border:1px solid #334155;border-radius:6px;background:#0f172a;color:#e0e0e0;letter-spacing:4px;text-align:center;">
+        <button id="submit-pin-btn">Submit</button>
+      </div>
+    </div>
+
     <nav>
       <a href="/">Remote Control</a>
     </nav>
