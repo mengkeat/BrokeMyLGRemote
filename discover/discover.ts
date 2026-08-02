@@ -46,25 +46,32 @@ function isLGWebOS(raw: string): boolean {
   return lc.includes("webos") || lc.includes("lge") || lc.includes("lg ");
 }
 
-async function fetchDeviceName(ip: string): Promise<string> {
-  const urls = [
-    `http://${ip}:3000/`,
-    `http://${ip}:1998/`,
-    `http://${ip}:1150/`,
-  ];
-  for (const url of urls) {
-    try {
-      const resp = await fetch(url, { signal: AbortSignal.timeout(2000) });
-      const text = await resp.text();
-      const match = text.match(/<friendlyName>([^<]+)<\/friendlyName>/);
-      if (match) return match[1];
-      const modelMatch = text.match(/<modelName>([^<]+)<\/modelName>/);
-      if (modelMatch) return modelMatch[1];
-    } catch {
-      continue;
-    }
+/** Decode the URL-encoded `DLNADeviceName.lge.com` SSDP header value. */
+function decodeDlnaName(value: string): string | null {
+  try {
+    const decoded = decodeURIComponent(value).trim();
+    return decoded || null;
+  } catch {
+    return null;
   }
-  return "LG TV";
+}
+
+/**
+ * Fetch the friendly name from the device-description XML at the SSDP LOCATION.
+ * The location port varies by responder (e.g. 1873 DIAL, 1340 DLNA/DMR, 1400,
+ * 1505), so probing fixed ports does not work — always use the advertised URL.
+ * Returns null if unreachable so the caller keeps its default name.
+ */
+async function fetchDeviceName(locationUrl: string): Promise<string | null> {
+  try {
+    const resp = await fetch(locationUrl, { signal: AbortSignal.timeout(2000) });
+    const text = await resp.text();
+    const match = text.match(/<friendlyName>([^<]+)<\/friendlyName>/);
+    if (match) return match[1];
+  } catch {
+    // device description unreachable; caller falls back to the default name
+  }
+  return null;
 }
 
 export async function discoverTVs(timeoutMs = 8000): Promise<DiscoveredTV[]> {
@@ -84,13 +91,20 @@ export async function discoverTVs(timeoutMs = 8000): Promise<DiscoveredTV[]> {
       const ip = location ? extractIpFromLocation(location) : rinfo.address;
       if (!ip || found.has(ip)) return;
 
-      const tv: DiscoveredTV = { name: "LG TV", ip, uuid: usn };
+      // Prefer the name embedded in the SSDP packet (no network round-trip),
+      // then fall back to the device-description XML at the LOCATION URL.
+      const packetName = headers["dlndevicename.lge.com"]
+        ? decodeDlnaName(headers["dlndevicename.lge.com"]!)
+        : null;
+      const tv: DiscoveredTV = { name: packetName ?? "LG TV", ip, uuid: usn };
       found.set(ip, tv);
 
-      const namePromise = fetchDeviceName(ip).then((name) => {
-        tv.name = name;
-      });
-      pendingNames.push(namePromise);
+      if (!packetName && location) {
+        const namePromise = fetchDeviceName(location).then((name) => {
+          if (name) tv.name = name;
+        });
+        pendingNames.push(namePromise);
+      }
     });
 
     socket.on("error", (err) => {
@@ -101,6 +115,9 @@ export async function discoverTVs(timeoutMs = 8000): Promise<DiscoveredTV[]> {
 
     socket.bind(0, "0.0.0.0", () => {
       socket.setBroadcast(true);
+      // Default multicast TTL can be too low for some networks/subnet
+      // configurations; raise it so M-SEARCH reliably stays on the local link.
+      socket.setMulticastTTL(4);
 
       for (const st of SEARCH_TARGETS) {
         const b = Buffer.from(buildMSearch(st));
