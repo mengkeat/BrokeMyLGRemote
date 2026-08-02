@@ -10,9 +10,31 @@ const pairingNotice = document.getElementById("pairing-notice")!;
 const pinPairing = document.getElementById("pin-pairing")!;
 const pinInput = document.getElementById("pin-input") as HTMLInputElement;
 const submitPinBtn = document.getElementById("submit-pin-btn")!;
+const remote = document.getElementById("remote")!;
 const touchpad = document.getElementById("touchpad")!;
 const textInput = document.getElementById("text-input") as HTMLInputElement;
 const sendTextBtn = document.getElementById("send-text-btn")!;
+
+// Wire up every button that declares a remote key via data-key.
+function sendButton(key: string) {
+  send({ type: "send_button", key });
+  flashKey(key);
+}
+
+// Briefly highlight the matching on-screen key (e.g. when triggered by keyboard).
+function flashKey(key: string) {
+  const el = remote.querySelector<HTMLElement>(`[data-key="${key}"]`);
+  if (!el) return;
+  el.classList.add("flash");
+  setTimeout(() => el.classList.remove("flash"), 140);
+}
+
+remote.addEventListener("click", (e: MouseEvent) => {
+  const target = (e.target as HTMLElement).closest<HTMLElement>("[data-key]");
+  if (target && remote.contains(target)) {
+    sendButton(target.dataset.key!);
+  }
+});
 
 const KEY_MAP: Record<string, string> = {
   ArrowUp: "UP",
@@ -39,6 +61,7 @@ function updateStatus(data: { status: string; pairingType?: string | null }) {
     ready: "Ready",
   };
   statusText.textContent = labels[data.status] || data.status;
+  remote.classList.toggle("offline", data.status !== "ready");
 
   // Show the PIN entry only when the TV has requested PIN pairing.
   const pinNeeded = data.status === "pairing" && data.pairingType === "PIN";
@@ -126,11 +149,7 @@ touchpad.addEventListener("mouseup", (e: MouseEvent) => {
 });
 
 document.addEventListener("pointerlockchange", () => {
-  if (document.pointerLockElement === touchpad) {
-    touchpad.style.borderColor = "#7c3aed";
-  } else {
-    touchpad.style.borderColor = "#334155";
-  }
+  touchpad.classList.toggle("locked", document.pointerLockElement === touchpad);
 });
 
 // Keyboard → remote keys (only when text input not focused)
@@ -140,7 +159,7 @@ document.addEventListener("keydown", (e: KeyboardEvent) => {
   const lgKey = KEY_MAP[e.key];
   if (lgKey) {
     e.preventDefault();
-    send({ type: "send_button", key: lgKey });
+    sendButton(lgKey);
   }
 });
 

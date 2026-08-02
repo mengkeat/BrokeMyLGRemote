@@ -8,44 +8,137 @@
 </head>
 <body>
   <div id="app">
-    <h1>LG TV Remote</h1>
+    <header class="remote-header">
+      <h1>LG TV Remote</h1>
+      <div id="status-bar">
+        <span id="status-dot"></span>
+        <span id="status-text">Disconnected</span>
+      </div>
+    </header>
 
-    <div id="status-bar">
-      <span id="status-dot"></span>
-      <span id="status-text">Disconnected</span>
-    </div>
+    <section class="panel">
+      <div id="connection">
+        <input type="text" id="tv-ip" placeholder="TV IP address (e.g. 192.168.1.100)">
+        <button id="connect-btn">Connect</button>
+        <button id="discover-btn" class="btn-ghost">Scan</button>
+      </div>
+      <div id="discovered-list"></div>
+      <div id="pairing-notice" class="notice" hidden></div>
+      <div id="pin-pairing" hidden>
+        <h2>PIN Pairing</h2>
+        <p class="hint">Enter the PIN shown on the TV screen.</p>
+        <div id="pin-controls">
+          <input type="text" id="pin-input" inputmode="numeric" autocomplete="off"
+                 pattern="[0-9]*" maxlength="8" placeholder="PIN">
+          <button id="submit-pin-btn">Submit PIN</button>
+        </div>
+      </div>
+    </section>
 
-    <div id="connection">
-      <input type="text" id="tv-ip" placeholder="TV IP address (e.g. 192.168.1.100)">
-      <button id="connect-btn">Connect</button>
-      <button id="discover-btn">Discover TVs</button>
-    </div>
+    <div id="remote" class="remote-body">
+      <div class="power-row">
+        <button class="key key-power" data-key="POWER" title="Power" aria-label="Power">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v9"/><path d="M6.4 6.4a8 8 0 1 0 11.2 0"/></svg>
+        </button>
+      </div>
 
-    <div id="discovered-list"></div>
+      <div class="dpad">
+        <button class="key dpad-up" data-key="UP" aria-label="Up"><svg viewBox="0 0 24 24"><path d="M12 5l7 9H5z"/></svg></button>
+        <button class="key dpad-left" data-key="LEFT" aria-label="Left"><svg viewBox="0 0 24 24"><path d="M5 12l9-7v14z"/></svg></button>
+        <button class="key key-ok" data-key="ENTER" aria-label="OK">OK</button>
+        <button class="key dpad-right" data-key="RIGHT" aria-label="Right"><svg viewBox="0 0 24 24"><path d="M19 12l-9-7v14z"/></svg></button>
+        <button class="key dpad-down" data-key="DOWN" aria-label="Down"><svg viewBox="0 0 24 24"><path d="M12 19l7-9H5z"/></svg></button>
+      </div>
 
-    <div id="pairing-notice" class="notice" hidden></div>
+      <div class="key-row">
+        <button class="key key-soft" data-key="BACK" aria-label="Back">
+          <svg viewBox="0 0 24 24"><path d="M11 5l-7 7 7 7"/><path d="M4 12h12a5 5 0 0 1 0 10h-2"/></svg>
+          <span>Back</span>
+        </button>
+        <button class="key key-soft" data-key="HOME" aria-label="Home">
+          <svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>
+          <span>Home</span>
+        </button>
+        <button class="key key-soft" data-key="EXIT" aria-label="Exit">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          <span>Exit</span>
+        </button>
+      </div>
 
-    <div id="pin-pairing" hidden>
-      <h2>PIN Pairing</h2>
-      <p class="hint">Enter the PIN shown on the TV screen.</p>
-      <div id="pin-controls">
-        <input type="text" id="pin-input" inputmode="numeric" autocomplete="off"
-               pattern="[0-9]*" maxlength="8" placeholder="PIN">
-        <button id="submit-pin-btn">Submit PIN</button>
+      <div class="rockers">
+        <div class="rocker">
+          <button class="key" data-key="VOLUMEUP" aria-label="Volume up">
+            <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+          <span class="rocker-label">VOL</span>
+          <button class="key" data-key="VOLUMEDOWN" aria-label="Volume down">
+            <svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg>
+          </button>
+        </div>
+
+        <button class="key key-mute" data-key="MUTE" aria-label="Mute">
+          <svg viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M22 9l-5 6M17 9l5 6"/></svg>
+        </button>
+
+        <div class="rocker">
+          <button class="key" data-key="CHANNELUP" aria-label="Channel up">
+            <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+          <span class="rocker-label">CH</span>
+          <button class="key" data-key="CHANNELDOWN" aria-label="Channel down">
+            <svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="keypad">
+        <button class="key key-num" data-key="1">1</button>
+        <button class="key key-num" data-key="2">2 <span class="sub">ABC</span></button>
+        <button class="key key-num" data-key="3">3 <span class="sub">DEF</span></button>
+        <button class="key key-num" data-key="4">4 <span class="sub">GHI</span></button>
+        <button class="key key-num" data-key="5">5 <span class="sub">JKL</span></button>
+        <button class="key key-num" data-key="6">6 <span class="sub">MNO</span></button>
+        <button class="key key-num" data-key="7">7 <span class="sub">PQRS</span></button>
+        <button class="key key-num" data-key="8">8 <span class="sub">TUV</span></button>
+        <button class="key key-num" data-key="9">9 <span class="sub">WXYZ</span></button>
+        <span class="keypad-spacer"></span>
+        <button class="key key-num" data-key="0">0</button>
+        <span class="keypad-spacer"></span>
+      </div>
+
+      <div class="key-row media-row">
+        <button class="key key-soft" data-key="REWIND" aria-label="Rewind">
+          <svg viewBox="0 0 24 24"><path d="M11 18l-7-6 7-6zM20 18l-7-6 7-6z"/></svg>
+        </button>
+        <button class="key key-soft" data-key="PLAYPAUSE" aria-label="Play / Pause">
+          <svg viewBox="0 0 24 24"><path d="M5 4l8 8-8 8z" opacity=".5"/><path d="M16 5h2v14h-2z"/></svg>
+        </button>
+        <button class="key key-soft" data-key="FASTFORWARD" aria-label="Fast forward">
+          <svg viewBox="0 0 24 24"><path d="M4 6l7 6-7 6zM13 6l7 6-7 6z"/></svg>
+        </button>
+      </div>
+
+      <div class="color-keys">
+        <button class="color-key color-red" data-key="RED" aria-label="Red"></button>
+        <button class="color-key color-green" data-key="GREEN" aria-label="Green"></button>
+        <button class="color-key color-yellow" data-key="YELLOW" aria-label="Yellow"></button>
+        <button class="color-key color-blue" data-key="BLUE" aria-label="Blue"></button>
       </div>
     </div>
 
-    <div id="controls">
+    <section class="panel">
       <h2>Touchpad</h2>
-      <p class="hint">Move mouse inside pad. Click to left-click. Use arrow keys, Enter, Backspace for remote keys.</p>
+      <p class="hint">Move the mouse inside the pad, click to select. Arrow keys, Enter, Backspace and Esc also work as remote keys.</p>
       <div id="touchpad"></div>
+    </section>
 
+    <section class="panel">
       <h2>Text Input</h2>
       <div id="text-controls">
         <input type="text" id="text-input" placeholder="Type text to send to TV...">
         <button id="send-text-btn">Send</button>
       </div>
-    </div>
+    </section>
 
     <nav>
       <a href="/dashboard">Dashboard</a>
