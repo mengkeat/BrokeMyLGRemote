@@ -49,7 +49,11 @@ LG TVs use self-signed certificates. The connection disables certificate validat
 6. Subsequent connections use saved key for auto-authentication
 
 ### Configuration
-- `tv_config.json` - Stores TV IP and client key (auto-generated after pairing)
+- `tv_config.json` - Stores the list of paired TVs as `{version: 1, tvs: [{ip, clientKey, name?}]}`,
+  written atomically with owner-only (`0o600`) permissions. Each paired TV keeps its
+  own `clientKey` so reconnecting never re-prompts; the browser only ever sees
+  `{ip, name}` (never the key). A legacy single-TV `{tvIp, clientKey}` file is
+  migrated to the list format on first read.
 
 ## Project Structure
 
@@ -81,7 +85,8 @@ project/
 |----------|--------|-------------|
 | `/api/discover` | GET | Scan network for TVs |
 | `/api/status` | GET | Get current TV connection status |
-| `/api/connect` | POST | Connect to TV (body: `{ip: string}`) |
+| `/api/saved-tvs` | GET | List previously paired TVs (IPs + names only; no client keys) |
+| `/api/connect` | POST | Connect to TV (body: `{ip: string, name?: string}`) |
 | `/control` | WS | WebSocket for real-time control |
 | `/dashboard` | GET | Dashboard UI |
 | `/discover` | GET | Discovery UI |
@@ -93,8 +98,13 @@ project/
 - `send_button` - Send remote button `{key}`
 - `send_text` - Send text input `{text}`
 - `discover` - Trigger TV scan
-- `connect_tv` - Connect to TV `{ip}`
+- `connect_tv` - Connect to TV `{ip, name?}` (also refreshes the saved-TV list on success)
+- `get_saved_tvs` - Request the saved-TV list (IPs + names; no keys)
 - `get_status` - Get connection status
+
+The server also pushes a `{type: "saved_tvs", tvs: [...]}` message to every client
+on connect and after a successful `connect_tv`, so the UI can render the list of
+previously paired TVs for quick reconnect.
 
 ## Key Files for Agents
 

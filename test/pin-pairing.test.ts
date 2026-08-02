@@ -6,7 +6,7 @@ test("PIN pairing: TV requests a PIN, client submits it, registration completes"
   const fake = makeFakeFactory();
   const config = makeMemoryStore();
   const messages: string[] = [];
-  const tv = new TVConnection({ socketFactory: fake.factory, configStore: config.store });
+  const tv = new TVConnection({ socketFactory: fake.factory, savedTvsStore: config.store });
   tv.setMessageCallback((m) => messages.push(m));
 
   const connectPromise = tv.connect("192.0.2.60");
@@ -35,7 +35,7 @@ test("PIN pairing: TV requests a PIN, client submits it, registration completes"
 
   expect(tv.getStatus().status).toBe("ready");
   expect(tv.getStatus().pairingType).toBeNull();
-  expect(config.current()).toEqual({ tvIp: "192.0.2.60", clientKey: "pin-client-key" });
+  expect(config.findByIp("192.0.2.60")).toEqual({ ip: "192.0.2.60", clientKey: "pin-client-key" });
 
   // The PIN must never surface in any notice.
   expect(messages.some((m) => m.includes("123456"))).toBe(false);
@@ -45,7 +45,7 @@ test("PIN pairing: TV requests a PIN, client submits it, registration completes"
 
 test("submitPairingPin rejects invalid input and the wrong pairing state", async () => {
   const fake = makeFakeFactory();
-  const tv = new TVConnection({ socketFactory: fake.factory, configStore: makeMemoryStore().store });
+  const tv = new TVConnection({ socketFactory: fake.factory, savedTvsStore: makeMemoryStore().store });
 
   // Not pairing at all.
   await expect(tv.submitPairingPin("123456")).rejects.toThrow(/no pairing/i);

@@ -1,5 +1,5 @@
-import type { TVSocketFactory, ConfigStore, WebSocketLike } from "../../src/tv-connection";
-import type { TVConfig } from "../../src/types";
+import type { TVSocketFactory, SavedTvsStore, WebSocketLike } from "../../src/tv-connection";
+import type { SavedTV } from "../../src/types";
 
 type Json = Record<string, unknown>;
 
@@ -92,24 +92,35 @@ export function makeFakeFactory(): FakeFactory {
 }
 
 export interface MemoryStore {
-  store: ConfigStore;
-  saveCalls: TVConfig[];
-  current: () => TVConfig | null;
+  store: SavedTvsStore;
+  saveCalls: SavedTV[][];
+  /** First saved entry (the "active" one in single-TV scenarios). */
+  current: () => SavedTV | null;
+  /** Every saved entry. */
+  all: () => SavedTV[];
+  /** Look up a saved entry by IP. */
+  findByIp: (ip: string) => SavedTV | undefined;
 }
 
-export function makeMemoryStore(initial: TVConfig | null = null): MemoryStore {
-  let value = initial;
-  const saveCalls: TVConfig[] = [];
-  const store: ConfigStore = {
+export function makeMemoryStore(initial: SavedTV[] = []): MemoryStore {
+  let value = [...initial];
+  const saveCalls: SavedTV[][] = [];
+  const store: SavedTvsStore = {
     async load() {
       return value;
     },
-    async save(c) {
-      value = c;
-      saveCalls.push(c);
+    async save(tvs) {
+      value = [...tvs];
+      saveCalls.push([...tvs]);
     },
   };
-  return { store, saveCalls, current: () => value };
+  return {
+    store,
+    saveCalls,
+    current: () => value[0] ?? null,
+    all: () => value,
+    findByIp: (ip) => value.find((t) => t.ip === ip),
+  };
 }
 
 export const tick = (ms = 0): Promise<void> => new Promise((r) => setTimeout(r, ms));

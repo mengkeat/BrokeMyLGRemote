@@ -1,7 +1,9 @@
 import { readFile, writeFile, rename } from "node:fs/promises";
 import { join } from "node:path";
 import type {
-  TVConfig,
+  SavedTV,
+  SavedTVInfo,
+  SavedTvsDocument,
   TVConnectionStatus,
   TVStatus,
   LGResponse,
@@ -42,9 +44,10 @@ export interface SocketFactoryOptions {
 export type TVSocketFactory = (url: string, options: SocketFactoryOptions) => WebSocketLike;
 
 /** Persists pairing credentials. Injectable so tests can use a temp directory. */
-export interface ConfigStore {
-  load(): Promise<TVConfig | null>;
-  save(config: TVConfig): Promise<void>;
+/** Persists the list of paired TVs. Injectable for tests (temp dir / memory). */
+export interface SavedTvsStore {
+  load(): Promise<SavedTV[]>;
+  save(tvs: SavedTV[]): Promise<void>;
 }
 
 /** Bun WebSocket ctor accepts a second Bun-specific options object for TLS. */
@@ -64,44 +67,68 @@ const defaultSocketFactory: TVSocketFactory = (url, options) => {
 };
 
 /**
- * File-backed config store. Writes are atomic: the JSON is written to a temp
- * file in the same directory and renamed onto the final path, so an interrupted
- * write never leaves a partially-written tv_config.json. On POSIX the file is
- * created owner-only (0o600) so the saved client key is not world-readable.
+ * File-backed list of paired TVs. Writes are atomic: the JSON is written to a
+ * temp file in the same directory and renamed onto the final path, so an
+ * interrupted write never leaves a partially-written tv_config.json. On POSIX
+ * the file is created owner-only (0o600) so saved client keys stay private.
+ *
+ * `load` is tolerant of older shapes: a legacy single-TV document
+ * `{ tvIp, clientKey }` is migrated to a one-element list, and any entry that
+ * fails validation is dropped rather than trusted.
  */
-export function createFileConfigStore(
+export function createFileSavedTvsStore(
   configPath: string,
   tmpPath = `${configPath}.tmp`,
-): ConfigStore {
+): SavedTvsStore {
   return {
     async load() {
+      let raw: string;
       try {
-        const raw = await readFile(configPath, "utf-8");
-        return JSON.parse(raw) as TVConfig;
+        raw = await readFile(configPath, "utf-8");
       } catch {
-        return null;
+        return [];
       }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        return [];
+      }
+      if (parsed && typeof parsed === "object") {
+        const doc = parsed as { tvs?: unknown; tvIp?: unknown };
+        if (Array.isArray(doc.tvs)) {
+          return (doc.tvs as unknown[]).filter(isValidSavedTV);
+        }
+        // Legacy single-TV format: { tvIp, clientKey }.
+        if (typeof doc.tvIp === "string") {
+          const legacy = parsed as { tvIp: string; clientKey: string };
+          const migrated: SavedTV = { ip: legacy.tvIp, clientKey: legacy.clientKey };
+          return isValidSavedTV(migrated) ? [migrated] : [];
+        }
+      }
+      return [];
     },
-    async save(config) {
-      await writeFile(tmpPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+    async save(tvs) {
+      const doc: SavedTvsDocument = { version: 1, tvs };
+      await writeFile(tmpPath, JSON.stringify(doc, null, 2), { mode: 0o600 });
       await rename(tmpPath, configPath);
     },
   };
 }
 
-const defaultConfigStore = createFileConfigStore(CONFIG_PATH);
+const defaultSavedTvsStore = createFileSavedTvsStore(CONFIG_PATH);
 
 export interface TVConnectionOptions {
   socketFactory?: TVSocketFactory;
-  configStore?: ConfigStore;
+  savedTvsStore?: SavedTvsStore;
 }
 
-/** Validate a loaded config before trusting it (never assume JSON shape). */
-function isValidConfig(c: unknown): c is TVConfig {
+/** Validate a saved-TV entry before trusting it (never assume JSON shape). */
+function isValidSavedTV(c: unknown): c is SavedTV {
   if (typeof c !== "object" || c === null) return false;
-  const cfg = c as Partial<TVConfig>;
-  return typeof cfg.tvIp === "string" && cfg.tvIp.length > 0
-    && typeof cfg.clientKey === "string" && cfg.clientKey.length > 0;
+  const v = c as Partial<SavedTV>;
+  return typeof v.ip === "string" && v.ip.length > 0
+    && typeof v.clientKey === "string" && v.clientKey.length > 0;
 }
 
 /**
@@ -133,7 +160,7 @@ export class TVConnection {
   private onStatusChange: ((status: TVStatus) => void) | null = null;
   private onMessage: ((message: string) => void) | null = null;
   private readonly socketFactory: TVSocketFactory;
-  private readonly configStore: ConfigStore;
+  private readonly savedTvsStore: SavedTvsStore;
   /** True while the current attempt is registering with a saved client key. */
   private usedSavedKey = false;
   /** Guards against more than one keyless recovery attempt per connection. */
@@ -142,10 +169,12 @@ export class TVConnection {
   private pairingType: PairingType | null = null;
   /** True once a PIN has been sent for the current PIN pairing (blocks dupes). */
   private pinSubmitted = false;
+  /** Optional label captured during connect() so a successful pairing can store it. */
+  private pendingName: string | undefined;
 
   constructor(options: TVConnectionOptions = {}) {
     this.socketFactory = options.socketFactory ?? defaultSocketFactory;
-    this.configStore = options.configStore ?? defaultConfigStore;
+    this.savedTvsStore = options.savedTvsStore ?? defaultSavedTvsStore;
   }
 
   setStatusCallback(cb: (status: TVStatus) => void) {
@@ -177,14 +206,36 @@ export class TVConnection {
     this.onStatusChange?.(this.getStatus());
   }
 
-  async loadConfig(): Promise<TVConfig | null> {
-    return this.configStore.load();
+  /** All paired TVs known to this connection (used for lookup + the UI list). */
+  async loadSavedTvs(): Promise<SavedTV[]> {
+    return this.savedTvsStore.load();
   }
 
-  private async saveConfig() {
+  /**
+   * Secret-free view of saved TVs, safe to send to the browser. Names default to
+   * "LG TV" when a TV was paired without a label.
+   */
+  async listSavedTvs(): Promise<SavedTVInfo[]> {
+    const saved = await this.loadSavedTvs();
+    return saved.map((t) => ({ ip: t.ip, name: t.name || "LG TV" }));
+  }
+
+  /**
+   * Upsert the currently connected TV into the saved list and persist it. Other
+   * saved TVs are preserved so switching between several paired TVs works.
+   */
+  private async persistSavedTv() {
     if (!this.tvIp || !this.clientKey) return;
-    const config: TVConfig = { tvIp: this.tvIp, clientKey: this.clientKey };
-    await this.configStore.save(config);
+    const saved = await this.loadSavedTvs();
+    const idx = saved.findIndex((t) => t.ip === this.tvIp);
+    const entry: SavedTV = {
+      ip: this.tvIp,
+      clientKey: this.clientKey,
+      name: this.pendingName ?? saved[idx]?.name,
+    };
+    if (idx >= 0) saved[idx] = entry;
+    else saved.push(entry);
+    await this.savedTvsStore.save(saved);
   }
 
   private nextId(): string {
@@ -209,31 +260,27 @@ export class TVConnection {
     });
   }
 
-  async connect(ip: string) {
+  async connect(ip: string, name?: string) {
     if (this.mainWs) this.disconnect();
 
     this.tvIp = ip;
+    this.pendingName = name;
 
     // Always start from a clean key: a previous TV's key must never leak into a
-    // new connection, and a saved key is only reused when the stored IP matches.
+    // new connection, and a saved key is only reused for the requested IP.
     this.clientKey = null;
     this.usedSavedKey = false;
     this.keylessRetryUsed = false;
     this.pairingType = null;
     this.pinSubmitted = false;
 
-    const rawConfig = await this.loadConfig();
-    if (isValidConfig(rawConfig)) {
-      if (rawConfig.tvIp === ip) {
-        this.clientKey = rawConfig.clientKey;
-        this.usedSavedKey = true;
-        console.log(`  Reusing saved client key for ${ip}.`);
-      } else {
-        console.log(`  Ignoring saved config for ${rawConfig.tvIp} (does not match ${ip}).`);
-      }
-    } else if (rawConfig !== null) {
-      console.log("  Saved TV config is malformed; ignoring it.");
-      this.notify("The saved TV config was unreadable, so a fresh pairing will be required.");
+    const saved = await this.loadSavedTvs();
+    const existing = saved.find((t) => t.ip === ip);
+    if (existing) {
+      this.clientKey = existing.clientKey;
+      this.usedSavedKey = true;
+      if (!this.pendingName) this.pendingName = existing.name;
+      console.log(`  Reusing saved client key for ${ip}.`);
     }
 
     this.setStatus("connecting");
@@ -390,7 +437,7 @@ export class TVConnection {
           // callers (e.g. the CLI, which exits right after connect()) never
           // lose the pairing. A save failure stays non-fatal: the session is
           // still usable, we just warn that a fresh pairing may be needed.
-          this.saveConfig()
+          this.persistSavedTv()
             .catch((e) => {
               const reason = e instanceof Error ? e.message : String(e);
               console.error("  Failed to save TV config:", reason);
@@ -615,6 +662,7 @@ export class TVConnection {
     this.keylessRetryUsed = false;
     this.pairingType = null;
     this.pinSubmitted = false;
+    this.pendingName = undefined;
     this.setStatus("disconnected");
     this.currentApp = null;
     this.volume = null;

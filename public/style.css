@@ -168,8 +168,17 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .btn-ghost:hover { border-color: var(--accent); color: var(--text); filter: none; }
 
-#discovered-list {
+#discovered-list,
+#saved-list {
   margin-top: 10px;
+}
+
+.list-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  margin: 0 0 6px 2px;
 }
 
 .discovered-tv {

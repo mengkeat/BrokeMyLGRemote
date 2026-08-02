@@ -1,6 +1,26 @@
-export interface TVConfig {
-  tvIp: string;
+/**
+ * A TV we have paired with before. `clientKey` lets us reconnect without
+ * re-pairing; it is a secret and must never be sent to the browser or logs.
+ */
+export interface SavedTV {
+  ip: string;
   clientKey: string;
+  name?: string;
+}
+
+/** On-disk layout of `tv_config.json`. Versioned so future migrations are explicit. */
+export interface SavedTvsDocument {
+  version: 1;
+  tvs: SavedTV[];
+}
+
+/**
+ * Public, secret-free view of a saved TV. Sent to the browser; never carries a
+ * client key. `name` is always non-empty so the UI has something to display.
+ */
+export interface SavedTVInfo {
+  ip: string;
+  name: string;
 }
 
 export interface DiscoveredTV {
@@ -30,13 +50,15 @@ export type ControlMessage =
   | { type: "send_button"; key: string }
   | { type: "send_text"; text: string }
   | { type: "discover" }
-  | { type: "connect_tv"; ip: string }
+  | { type: "connect_tv"; ip: string; name?: string }
   | { type: "submit_pairing_pin"; pin: string }
+  | { type: "get_saved_tvs" }
   | { type: "get_status" };
 
 export type ServerMessage =
   | { type: "status"; data: TVStatus }
   | { type: "discovered"; tvs: DiscoveredTV[] }
+  | { type: "saved_tvs"; tvs: SavedTVInfo[] }
   | { type: "error"; message: string }
   | { type: "pairing"; message: string };
 

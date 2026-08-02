@@ -87,10 +87,14 @@ const server = Bun.serve({
       return Response.json(tv.getStatus());
     }
 
+    if (url.pathname === "/api/saved-tvs") {
+      return Response.json(await tv.listSavedTvs());
+    }
+
     if (url.pathname === "/api/connect" && req.method === "POST") {
       try {
-        const body = await req.json() as { ip: string };
-        await tv.connect(body.ip);
+        const body = await req.json() as { ip: string; name?: string };
+        await tv.connect(body.ip, body.name);
         return Response.json({ success: true });
       } catch (e: any) {
         return Response.json({ error: e.message }, { status: 500 });
@@ -115,6 +119,13 @@ const server = Bun.serve({
     open(ws) {
       clients.add(ws);
       ws.send(JSON.stringify({ type: "status", data: tv.getStatus() } satisfies ServerMessage));
+      // Push the saved-TV list (IPs/names only; no secrets) so the UI can show
+      // quick-reconnect entries immediately.
+      tv.listSavedTvs().then((tvs) => {
+        if (ws.readyState === 1) {
+          ws.send(JSON.stringify({ type: "saved_tvs", tvs } satisfies ServerMessage));
+        }
+      });
     },
     async message(ws, raw) {
       try {
@@ -147,10 +158,15 @@ const server = Bun.serve({
           }
           case "connect_tv":
             try {
-              await tv.connect(msg.ip);
+              await tv.connect(msg.ip, msg.name);
+              // Pairing/persistence succeeded; refresh the saved-TV list for everyone.
+              broadcast({ type: "saved_tvs", tvs: await tv.listSavedTvs() });
             } catch (e: any) {
               ws.send(JSON.stringify({ type: "error", message: e.message } satisfies ServerMessage));
             }
+            break;
+          case "get_saved_tvs":
+            ws.send(JSON.stringify({ type: "saved_tvs", tvs: await tv.listSavedTvs() } satisfies ServerMessage));
             break;
           case "get_status":
             ws.send(JSON.stringify({ type: "status", data: tv.getStatus() } satisfies ServerMessage));

@@ -7,6 +7,7 @@ const tvStatusEl = document.getElementById("tv-status")!;
 const tvAppEl = document.getElementById("tv-app")!;
 const tvVolumeEl = document.getElementById("tv-volume")!;
 const tvList = document.getElementById("tv-list")!;
+const savedList = document.getElementById("saved-list")!;
 const refreshBtn = document.getElementById("refresh-btn")!;
 const pairingNotice = document.getElementById("pairing-notice")!;
 const pinPairing = document.getElementById("pin-pairing")!;
@@ -65,6 +66,9 @@ ws.onmessage = (event) => {
     case "discovered":
       renderTVs(msg.tvs);
       break;
+    case "saved_tvs":
+      renderSavedTVs(msg.tvs);
+      break;
     case "pairing":
       pairingNotice.textContent = msg.message;
       pairingNotice.hidden = !msg.message;
@@ -88,12 +92,30 @@ function renderTVs(tvs: Array<{ name: string; ip: string }>) {
     div.innerHTML = `<span>${tv.name} (${tv.ip})</span>`;
     const btn = document.createElement("button");
     btn.textContent = "Connect";
-    btn.onclick = () => send({ type: "connect_tv", ip: tv.ip });
+    btn.onclick = () => send({ type: "connect_tv", ip: tv.ip, name: tv.name });
     div.appendChild(btn);
     tvList.appendChild(div);
   }
   if (tvs.length === 0) {
     tvList.innerHTML = '<div class="tv-list-item"><span>No TVs found on network</span></div>';
+  }
+}
+
+function renderSavedTVs(tvs: Array<{ ip: string; name: string }>) {
+  savedList.innerHTML = "";
+  if (tvs.length === 0) {
+    savedList.innerHTML = '<div class="tv-list-item"><span>No saved TVs yet</span></div>';
+    return;
+  }
+  for (const tv of tvs) {
+    const div = document.createElement("div");
+    div.className = "tv-list-item";
+    div.innerHTML = `<span>${tv.name} (${tv.ip})</span>`;
+    const btn = document.createElement("button");
+    btn.textContent = "Connect";
+    btn.onclick = () => send({ type: "connect_tv", ip: tv.ip, name: tv.name });
+    div.appendChild(btn);
+    savedList.appendChild(div);
   }
 }
 

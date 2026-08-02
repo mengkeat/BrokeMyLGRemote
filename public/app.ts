@@ -6,6 +6,7 @@ const tvIpInput = document.getElementById("tv-ip") as HTMLInputElement;
 const connectBtn = document.getElementById("connect-btn")!;
 const discoverBtn = document.getElementById("discover-btn")!;
 const discoveredList = document.getElementById("discovered-list")!;
+const savedList = document.getElementById("saved-list")!;
 const pairingNotice = document.getElementById("pairing-notice")!;
 const pinPairing = document.getElementById("pin-pairing")!;
 const pinInput = document.getElementById("pin-input") as HTMLInputElement;
@@ -87,6 +88,9 @@ ws.onmessage = (event) => {
     case "discovered":
       renderDiscoveredTVs(msg.tvs);
       break;
+    case "saved_tvs":
+      renderSavedTVs(msg.tvs);
+      break;
     case "pairing":
       pairingNotice.textContent = msg.message;
       pairingNotice.hidden = !msg.message;
@@ -109,13 +113,37 @@ function renderDiscoveredTVs(tvs: Array<{ name: string; ip: string }>) {
     btn.textContent = "Connect";
     btn.onclick = () => {
       tvIpInput.value = tv.ip;
-      send({ type: "connect_tv", ip: tv.ip });
+      send({ type: "connect_tv", ip: tv.ip, name: tv.name });
     };
     div.appendChild(btn);
     discoveredList.appendChild(div);
   }
   if (tvs.length === 0) {
     discoveredList.innerHTML = '<div class="discovered-tv"><span>No TVs found</span></div>';
+  }
+}
+
+function renderSavedTVs(tvs: Array<{ ip: string; name: string }>) {
+  savedList.innerHTML = "";
+  if (tvs.length === 0) return; // nothing saved yet: hide the section entirely
+
+  const heading = document.createElement("div");
+  heading.className = "list-label";
+  heading.textContent = "Saved TVs";
+  savedList.appendChild(heading);
+
+  for (const tv of tvs) {
+    const div = document.createElement("div");
+    div.className = "discovered-tv";
+    div.innerHTML = `<span>${tv.name} (${tv.ip})</span>`;
+    const btn = document.createElement("button");
+    btn.textContent = "Connect";
+    btn.onclick = () => {
+      tvIpInput.value = tv.ip;
+      send({ type: "connect_tv", ip: tv.ip, name: tv.name });
+    };
+    div.appendChild(btn);
+    savedList.appendChild(div);
   }
 }
 

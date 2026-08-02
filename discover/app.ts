@@ -44,7 +44,7 @@ function renderTVs(tvs: Array<{ name: string; ip: string; uuid: string }>) {
     const btn = document.createElement("button");
     btn.textContent = "Connect";
     btn.onclick = () => {
-      send({ type: "connect_tv", ip: tv.ip });
+      send({ type: "connect_tv", ip: tv.ip, name: tv.name });
       window.location.href = "/";
     };
     card.appendChild(btn);
