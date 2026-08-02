@@ -1,50 +1,145 @@
-# Broke My LG Remote
+<div align="center">
+  <h1>📺 Broke My LG Remote</h1>
+  <p>A local, browser-based remote control for LG webOS TVs.</p>
 
-A browser-based remote control for LG webOS TVs.
+  <p>
+    <a href="https://github.com/mengkeat/BrokeMyLGRemote/stargazers"><img src="https://img.shields.io/github/stars/mengkeat/BrokeMyLGRemote?style=flat-square&logo=github" alt="GitHub stars"></a>
+    <a href="https://github.com/mengkeat/BrokeMyLGRemote/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT License"></a>
+    <a href="https://bun.sh/"><img src="https://img.shields.io/badge/runtime-Bun-000000?style=flat-square&logo=bun&logoColor=white" alt="Bun"></a>
+    <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-5.9-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript"></a>
+    <a href="https://webostv.developer.lge.com/"><img src="https://img.shields.io/badge/LG_webOS-4.0%2B-a50034?style=flat-square" alt="LG webOS 4.0+"></a>
+  </p>
+</div>
 
-When my LG remote broke, I was offered an expensive replacement. Instead, I built this lightweight local web app to control the TV from a browser—and kept the replacement cost at zero.
+When my LG remote broke, I was offered an expensive replacement. Rather than pay for another physical remote, I built this project: a lightweight local web app that turns a browser into an LG TV remote.
 
-> Designed for LG TVs from 2018 onward running webOS 4.0 or newer.
+It is intentionally small, self-hosted, and designed to work entirely on your local network.
 
-## Features
+## 📚 Contents
 
-- **Network discovery** – Find LG webOS TVs on the local network using SSDP.
-- **Browser remote control** – Use a responsive on-screen remote from any modern browser.
-- **Essential remote buttons** – Power, directional pad, OK, Back, Home, Exit, volume, mute, channel, numbers, media playback, and color keys.
-- **Touchpad pointer** – Move the TV pointer with a mouse or trackpad and click to select.
-- **Keyboard shortcuts** – Use arrow keys, Enter, Backspace, and Escape as remote buttons.
-- **Text input** – Send text directly to the TV, useful for search fields and login screens.
-- **Prompt and PIN pairing** – Support both approval-on-TV and PIN-based pairing flows.
-- **Saved TVs** – Pair multiple TVs and reconnect to each one without repeating setup.
-- **Connection recovery** – Automatically tries supported LG WebSocket endpoints and can recover from a stale saved pairing key.
-- **Live dashboard** – View connection state, TV IP, current foreground app, volume, and mute status.
-- **Discovery CLI** – Scan for TVs or connect directly from the terminal.
-- **Local-only operation** – The server binds to `127.0.0.1` by default; pairing keys remain on the machine and are never sent to the browser.
+- [Features](#-features)
+- [Compatibility](#-compatibility)
+- [Quick start](#-quick-start)
+- [Web interfaces](#-web-interfaces)
+- [Remote controls](#-remote-controls)
+- [Discovery CLI](#-discovery-cli)
+- [API reference](#-api-reference)
+- [Protocol and connection details](#-protocol-and-connection-details)
+- [Security and privacy](#-security-and-privacy)
+- [Development](#-development)
+- [Contributing](#-contributing)
+- [License](#-license)
 
-## Requirements
+## ✨ Features
 
-- [Bun](https://bun.sh/) installed
-- An LG webOS TV (2018+ / webOS 4.0+)
-- The computer and TV connected to the same local network
-- Network control / LG Connect Apps enabled on the TV, if required by the TV model
+### Remote control
 
-## Getting started
+- **Complete essential controls:** power, directional pad, OK, Back, Home, Exit, volume, mute, channel, number pad, media playback, and color keys.
+- **Touchpad pointer:** move the TV pointer with a mouse or trackpad and click to select.
+- **Keyboard shortcuts:** use `↑`, `↓`, `←`, `→`, `Enter`, `Backspace`, and `Escape` as remote buttons.
+- **Text input:** send text directly to the TV for search boxes, login screens, and other input fields.
+- **Responsive web UI:** use the remote from a browser on the machine running the server.
+
+### TV management
+
+- **Automatic discovery:** scan the local network for LG webOS TVs using SSDP.
+- **Direct connection:** connect by TV IP address when discovery is unavailable.
+- **Prompt and PIN pairing:** support both approval-on-TV and PIN-based pairing flows.
+- **Multiple saved TVs:** pair several TVs and reconnect to each one independently.
+- **Pairing recovery:** reuse saved client keys and recover once from a stale key when necessary.
+- **Live status:** view connection state, TV IP, current foreground app, volume, and mute status.
+- **CLI support:** discover TVs or connect to a specific TV from the terminal.
+
+## 🖥️ Compatibility
+
+| Requirement | Supported configuration |
+| --- | --- |
+| TV | LG TVs from 2018 onward |
+| Firmware | webOS 4.0 or newer |
+| Network | Computer and TV on the same local network |
+| Runtime | [Bun](https://bun.sh/) |
+| Browser | Any modern browser with WebSocket support |
+
+Your TV may require **LG Connect Apps**, **Mobile TV On**, or a similar network-control setting to be enabled. The exact setting name varies by model and firmware.
+
+## 🚀 Quick start
+
+### 1. Install dependencies
 
 ```bash
 bun install
+```
+
+### 2. Start the server
+
+```bash
 bun run dev
 ```
 
-Open [http://127.0.0.1:8080](http://127.0.0.1:8080) in a browser.
+The server listens on `127.0.0.1:8080`. Open [http://127.0.0.1:8080](http://127.0.0.1:8080) in your browser.
 
-1. Click **Scan** to discover TVs, or enter the TV's IP address manually.
-2. Click **Connect**.
-3. Approve the pairing request on the TV, or enter the PIN shown by the TV.
-4. Use the remote, touchpad, or text input controls.
+### 3. Pair your TV
 
-The first successful pairing is saved locally in `tv_config.json`. Future connections reuse the TV's saved key automatically. This file is ignored by Git and is created with owner-only permissions on supported systems.
+1. Click **Scan**, or enter the TV's IP address manually.
+2. Select the TV and click **Connect**.
+3. Approve the pairing prompt on the TV, or enter the PIN displayed by the TV.
+4. Start using the remote.
 
-## Discovery CLI
+After the first successful pairing, the returned client key is saved to `tv_config.json`. Future connections reuse the key automatically, so you do not need to pair the same TV again.
+
+> **Tip:** If the TV is not discovered, verify that it is powered on, connected to the same network, and accepting network-control connections. You can also connect using its IP address.
+
+## 🧭 Web interfaces
+
+| Path | Description |
+| --- | --- |
+| [`/`](http://127.0.0.1:8080/) | Main remote control with buttons, touchpad, and text input |
+| [`/dashboard`](http://127.0.0.1:8080/dashboard) | Connection, app, volume, saved-TV, and discovery dashboard |
+| [`/discover`](http://127.0.0.1:8080/discover) | Network discovery interface |
+
+## 📡 API reference
+
+The server exposes a small HTTP API and a WebSocket for real-time remote control.
+
+### HTTP endpoints
+
+| Endpoint | Method | Description |
+| --- | --- | --- |
+| `/api/discover` | `GET` | Discover LG TVs on the local network |
+| `/api/status` | `GET` | Return the current TV connection status |
+| `/api/saved-tvs` | `GET` | List saved TV IPs and names without pairing keys |
+| `/api/connect` | `POST` | Connect to a TV; body: `{ "ip": "192.168.1.100", "name": "Living Room" }` |
+| `/control` | WebSocket | Send commands and receive status, discovery, pairing, and error events |
+
+### WebSocket commands
+
+Send JSON messages to `/control`:
+
+| Command | Payload | Purpose |
+| --- | --- | --- |
+| `mouse_move` | `{ "dx": 10, "dy": -5 }` | Move the TV pointer |
+| `mouse_click` | — | Click at the current pointer position |
+| `send_button` | `{ "key": "ENTER" }` | Send a remote button |
+| `send_text` | `{ "text": "hello" }` | Send text to the active TV input |
+| `discover` | — | Start a network discovery scan |
+| `connect_tv` | `{ "ip": "...", "name?": "..." }` | Connect or pair with a TV |
+| `submit_pairing_pin` | `{ "pin": "123456" }` | Complete a PIN pairing flow |
+| `get_saved_tvs` | — | Request the saved-TV list |
+| `get_status` | — | Request the current connection status |
+
+## ⌨️ Remote controls
+
+| Group | Controls |
+| --- | --- |
+| Navigation | Power, Up, Down, Left, Right, OK, Back, Home, Exit |
+| TV control | Volume Up, Volume Down, Mute, Channel Up, Channel Down |
+| Number pad | `0`–`9` |
+| Playback | Rewind, Play/Pause, Fast Forward |
+| Color keys | Red, Green, Yellow, Blue |
+| Pointer | Mouse/trackpad movement and click |
+| Text | Browser text field sent to the TV's active input field |
+
+## 💻 Discovery CLI
 
 Scan for LG TVs on the local network:
 
@@ -58,53 +153,40 @@ Scan and connect automatically when exactly one TV is found:
 bun run discover/cli.ts --connect
 ```
 
-Connect to a specific TV by IP address:
+Connect directly to a known TV IP address:
 
 ```bash
-bun run discover/cli.ts --connect --ip 192.168.1.100
+bun run discover/cli.ts --ip 192.168.1.100
 ```
 
-Show command help:
+Show all CLI options:
 
 ```bash
 bun run discover/cli.ts --help
 ```
 
-## Web interfaces
+## 🔌 Protocol and connection details
 
-- `/` – Remote control
-- `/dashboard` – Connection and TV status dashboard
-- `/discover` – Discovery interface
-
-The server also exposes these HTTP endpoints:
-
-| Endpoint | Method | Purpose |
-| --- | --- | --- |
-| `/api/discover` | `GET` | Discover LG TVs on the network |
-| `/api/status` | `GET` | Read the current connection status |
-| `/api/saved-tvs` | `GET` | List saved TVs without exposing pairing keys |
-| `/api/connect` | `POST` | Connect to a TV with `{ "ip": "...", "name?": "..." }` |
-| `/control` | WebSocket | Send remote-control commands and receive live updates |
-
-## How it connects
-
-The app communicates with the TV using LG's webOS WebSocket protocol. It attempts endpoints in this order:
+The server communicates with the TV using LG's webOS WebSocket protocol. It attempts these endpoints in order:
 
 1. `wss://<tv-ip>:3001`
 2. `ws://<tv-ip>:3000`
 3. `wss://<tv-ip>:3000`
 
-LG TVs commonly use self-signed certificates for local secure connections, so certificate validation is disabled for these LAN connections.
+Secure LG TV endpoints commonly use self-signed certificates. The client accepts those certificates for these local-network connections so pairing can work with the TV's built-in service.
 
-## Security and privacy
+The browser communicates with the Bun server through the `/control` WebSocket. TV discovery uses SSDP multicast on `239.255.255.250:1900`.
 
-- The server listens on localhost by default.
-- Client pairing keys are stored only in `tv_config.json`.
-- Pairing keys are not returned by the API or sent to browser clients.
-- PINs are validated locally and are not logged or broadcast.
+## 🔐 Security and privacy
+
+- The server binds to `127.0.0.1` by default and is not exposed to the LAN unless you change the server configuration.
+- Pairing keys are stored locally in `tv_config.json` and are never sent to browser clients.
+- `tv_config.json` is ignored by Git and is written atomically with owner-only permissions on supported POSIX systems.
+- The browser receives only saved TV IP addresses and display names—not client keys.
+- PINs are validated and submitted without being logged or broadcast.
 - Do not expose this server to an untrusted network without adding authentication and reviewing the TLS configuration.
 
-## Development
+## 🛠️ Development
 
 Run the test suite:
 
@@ -112,29 +194,46 @@ Run the test suite:
 bun test
 ```
 
-Run TypeScript checks:
+Run the TypeScript checker:
 
 ```bash
 bunx tsc --noEmit
 ```
 
-## Project structure
+Start the server with file watching during development:
+
+```bash
+bun run dev
+```
+
+## 🗂️ Project structure
 
 ```text
 src/
-  server.ts          Bun HTTP/WebSocket server
-  tv-connection.ts   LG webOS connection and pairing logic
-  types.ts           Protocol types and registration payload
+├── server.ts            Bun HTTP/WebSocket server
+├── tv-connection.ts     LG webOS connection and pairing logic
+└── types.ts             Protocol types and registration payload
 
 discover/
-  cli.ts             Discovery and connection CLI
-  discover.ts        SSDP discovery implementation
+├── cli.ts               Discovery and connection CLI
+└── discover.ts          SSDP discovery implementation
 
-dashboard/          TV status dashboard
-public/              Remote control UI
-test/                Automated protocol and persistence tests
+dashboard/              TV status dashboard
+public/                 Remote control UI
+test/                   Automated protocol and persistence tests
 ```
 
-## License
+## 🤝 Contributing
 
-No license has been specified yet.
+Issues, fixes, and improvements are welcome. Before opening a pull request:
+
+1. Keep changes focused and avoid committing `tv_config.json` or other secrets.
+2. Run `bun test`.
+3. Run `bunx tsc --noEmit`.
+4. Include a clear description of the TV model or webOS behavior affected by the change.
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).
+
+LG and webOS are trademarks of LG Electronics. This project is an independent, unofficial remote-control application and is not affiliated with or endorsed by LG Electronics.
