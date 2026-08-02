@@ -75,6 +75,8 @@ export interface FakeFactory {
   sockets: FakeSocket[];
   /** First socket created is the main control socket for a connection attempt. */
   main: () => FakeSocket;
+  /** Most recent socket whose URL contains `substr` (e.g. an IP or port). */
+  forUrl: (substr: string) => FakeSocket | undefined;
 }
 
 export function makeFakeFactory(): FakeFactory {
@@ -84,7 +86,9 @@ export function makeFakeFactory(): FakeFactory {
     sockets.push(s);
     return s;
   };
-  return { factory, sockets, main: () => sockets[0] };
+  const forUrl = (substr: string) =>
+    sockets.filter((s) => s.url.includes(substr)).at(-1);
+  return { factory, sockets, main: () => sockets[0], forUrl };
 }
 
 export interface MemoryStore {

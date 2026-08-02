@@ -81,6 +81,27 @@ export interface TVConnectionOptions {
   configStore?: ConfigStore;
 }
 
+/** Validate a loaded config before trusting it (never assume JSON shape). */
+function isValidConfig(c: unknown): c is TVConfig {
+  if (typeof c !== "object" || c === null) return false;
+  const cfg = c as Partial<TVConfig>;
+  return typeof cfg.tvIp === "string" && cfg.tvIp.length > 0
+    && typeof cfg.clientKey === "string" && cfg.clientKey.length > 0;
+}
+
+/**
+ * Raised when the TV explicitly rejects a registration (e.g. `AUTH_ERROR` /
+ * denied pairing prompt), as opposed to a transport failure or timeout.
+ *
+ * Carries only safe TV-side error text — never the client key.
+ */
+export class RegistrationRejectedError extends Error {
+  constructor(message: string, readonly tvError?: string) {
+    super(message);
+    this.name = "RegistrationRejectedError";
+  }
+}
+
 export class TVConnection {
   private mainWs: WebSocketLike | null = null;
   private pointerWs: WebSocketLike | null = null;
@@ -97,6 +118,10 @@ export class TVConnection {
   private onStatusChange: ((status: TVStatus) => void) | null = null;
   private readonly socketFactory: TVSocketFactory;
   private readonly configStore: ConfigStore;
+  /** True while the current attempt is registering with a saved client key. */
+  private usedSavedKey = false;
+  /** Guards against more than one keyless recovery attempt per connection. */
+  private keylessRetryUsed = false;
 
   constructor(options: TVConnectionOptions = {}) {
     this.socketFactory = options.socketFactory ?? defaultSocketFactory;
@@ -158,12 +183,24 @@ export class TVConnection {
     if (this.mainWs) this.disconnect();
 
     this.tvIp = ip;
-    this.setStatus("connecting");
+
+    // Always start from a clean key: a previous TV's key must never leak into a
+    // new connection, and a saved key is only reused when the stored IP matches.
+    this.clientKey = null;
+    this.usedSavedKey = false;
+    this.keylessRetryUsed = false;
 
     const config = await this.loadConfig();
-    if (config && config.tvIp === ip) {
+    if (isValidConfig(config) && config.tvIp === ip) {
       this.clientKey = config.clientKey;
+      this.usedSavedKey = true;
+      console.log(`  Reusing saved client key for ${ip}.`);
+    } else if (config) {
+      const storedIp = isValidConfig(config) ? config.tvIp : "(unknown)";
+      console.log(`  Ignoring saved config for ${storedIp} (does not match ${ip}).`);
     }
+
+    this.setStatus("connecting");
 
     const wsUrls = [`wss://${ip}:3001`, `wss://${ip}:3000`, `ws://${ip}:3000`];
     const errors: string[] = [];
@@ -175,13 +212,18 @@ export class TVConnection {
         await this.connectWebSocket(wsUrl);
         return;
       } catch (e) {
+        // An explicit TV-side pairing rejection is fatal: the same reachable TV
+        // would just re-prompt on the next endpoint, so stop immediately rather
+        // than spamming pairing prompts across all endpoints.
+        if (e instanceof RegistrationRejectedError) {
+          this.cleanupSocket();
+          this.setStatus("disconnected");
+          throw e;
+        }
         const message = e instanceof Error ? e.message : String(e);
         errors.push(`${wsUrl} -> ${message}`);
         console.log(`  Failed: ${message}`);
-        this.mainWs?.close();
-        this.mainWs = null;
-        this.pointerWs?.close();
-        this.pointerWs = null;
+        this.cleanupSocket();
       }
     }
 
@@ -189,18 +231,25 @@ export class TVConnection {
     throw new Error(`Failed to connect to TV. Attempts: ${errors.join(" | ")}`);
   }
 
+  private cleanupSocket() {
+    this.mainWs?.close();
+    this.mainWs = null;
+    this.pointerWs?.close();
+    this.pointerWs = null;
+  }
+
   private connectWebSocket(wsUrl: string): Promise<void> {
     return new Promise((resolve, reject) => {
       let settled = false;
       const timeout = setTimeout(() => {
-        fail(`Connection timed out at ${wsUrl}`);
+        fail(new Error(`Connection timed out at ${wsUrl}`));
       }, 12000);
 
-      const fail = (message: string) => {
+      const fail = (err: Error) => {
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
-        reject(new Error(message));
+        reject(err);
       };
 
       this.mainWs = this.socketFactory(wsUrl, {
@@ -210,15 +259,17 @@ export class TVConnection {
 
       this.mainWs.onopen = () => {
         clearTimeout(timeout);
-        this.setStatus("pairing");
-        console.log("  Connected, registering...");
-        this.register().then(() => {
-          settled = true;
-          resolve();
-        }).catch((e) => {
-          const message = e instanceof Error ? e.message : String(e);
-          fail(message);
-        });
+        this.register()
+          .then(() => {
+            if (settled) return;
+            settled = true;
+            resolve();
+          })
+          .catch((e) => {
+            // Propagate the original error so connect() can tell a registration
+            // rejection (RegistrationRejectedError) apart from a transport fault.
+            fail(e instanceof Error ? e : new Error(String(e)));
+          });
       };
 
       this.mainWs.onmessage = (event) => {
@@ -228,14 +279,14 @@ export class TVConnection {
       this.mainWs.onerror = (err) => {
         console.error("Main WS error:", err);
         const details = err instanceof Error ? err.message : String(err);
-        fail(`WebSocket connection failed at ${wsUrl}: ${details}`);
+        fail(new Error(`WebSocket connection failed at ${wsUrl}: ${details}`));
       };
 
       this.mainWs.onclose = () => {
         this.pointerWs?.close();
         this.pointerWs = null;
         if (!settled) {
-          fail(`Socket closed at ${wsUrl}`);
+          fail(new Error(`Socket closed at ${wsUrl}`));
           return;
         }
         this.setStatus("disconnected");
@@ -243,49 +294,79 @@ export class TVConnection {
     });
   }
 
-  private async register() {
-    const payload: LGRegistrationPayload = buildRegistrationPayload(this.clientKey ?? undefined);
+  /**
+   * Register on the current socket, recovering once if a *saved* key is
+   * rejected by clearing it and re-pairing from scratch on the same socket.
+   */
+  private register(): Promise<void> {
+    return this.attemptRegistration().catch((err) => {
+      if (
+        err instanceof RegistrationRejectedError
+        && this.usedSavedKey
+        && !this.keylessRetryUsed
+      ) {
+        console.log("  Saved client key rejected by TV; retrying with fresh pairing...");
+        this.clientKey = null;
+        this.usedSavedKey = false;
+        this.keylessRetryUsed = true;
+        return this.attemptRegistration();
+      }
+      throw err;
+    });
+  }
 
+  private attemptRegistration(): Promise<void> {
+    const payload: LGRegistrationPayload = buildRegistrationPayload(this.clientKey ?? undefined);
     const id = this.nextId();
     this.registrationRequestId = id;
+    this.setStatus("pairing");
+    console.log(`  Registering${this.clientKey ? " with saved key" : " (fresh pairing)"}...`);
 
     return new Promise<void>((resolve, reject) => {
-      console.log("  Waiting for pairing response (check TV for prompt)...");
+      const registrationTimer = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        if (this.registrationRequestId === id) this.registrationRequestId = null;
+        reject(new Error("Registration timed out - check TV for pairing prompt"));
+      }, 30000);
+
       const handler = (resp: LGResponse) => {
         const returnedClientKey = resp.payload?.["client-key"];
         if (
           resp.type === "registered"
           || (resp.type === "response" && typeof returnedClientKey === "string" && returnedClientKey.length > 0)
         ) {
+          clearTimeout(registrationTimer);
+          this.pendingRequests.delete(id);
+          this.registrationRequestId = null;
           if (typeof returnedClientKey === "string" && returnedClientKey.length > 0) {
             this.clientKey = returnedClientKey;
           }
-          this.saveConfig().catch(() => {});
+          this.saveConfig().catch((e) => {
+            console.error("  Failed to save TV config:", e instanceof Error ? e.message : e);
+          });
           this.setStatus("ready");
           this.setupPointerSocket().catch(() => {}); // Non-blocking
           this.subscribeToStatus();
           resolve();
-        } else if (resp.type === "error") {
+        } else if (resp.type === "error" || resp.returnValue === false) {
+          clearTimeout(registrationTimer);
+          this.pendingRequests.delete(id);
+          this.registrationRequestId = null;
           this.setStatus("disconnected");
-          reject(new Error(resp.error || "Registration failed"));
+          reject(new RegistrationRejectedError(
+            resp.error || resp.errorText || "Registration rejected by TV",
+            resp.error,
+          ));
         }
+        // Intermediate response (e.g. pairing-type negotiation) - keep waiting.
       };
       this.pendingRequests.set(id, handler);
 
-      const regMsg = {
+      this.mainWs!.send(JSON.stringify({
         id,
         type: "register",
         payload,
-      };
-      this.mainWs!.send(JSON.stringify(regMsg));
-
-      setTimeout(() => {
-        if (this.pendingRequests.has(id)) {
-          this.pendingRequests.delete(id);
-          this.registrationRequestId = null;
-          reject(new Error("Registration timed out - check TV for pairing prompt"));
-        }
-      }, 30000);
+      }));
     });
   }
 
@@ -436,6 +517,9 @@ export class TVConnection {
     this.pointerWs?.close();
     this.mainWs = null;
     this.pointerWs = null;
+    this.clientKey = null;
+    this.usedSavedKey = false;
+    this.keylessRetryUsed = false;
     this.setStatus("disconnected");
     this.currentApp = null;
     this.volume = null;
