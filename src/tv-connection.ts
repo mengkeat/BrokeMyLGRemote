@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, rename } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   TVConfig,
@@ -62,19 +62,33 @@ const defaultSocketFactory: TVSocketFactory = (url, options) => {
   return ws as unknown as WebSocketLike;
 };
 
-const defaultConfigStore: ConfigStore = {
-  async load() {
-    try {
-      const raw = await readFile(CONFIG_PATH, "utf-8");
-      return JSON.parse(raw) as TVConfig;
-    } catch {
-      return null;
-    }
-  },
-  async save(config) {
-    await writeFile(CONFIG_PATH, JSON.stringify(config, null, 2));
-  },
-};
+/**
+ * File-backed config store. Writes are atomic: the JSON is written to a temp
+ * file in the same directory and renamed onto the final path, so an interrupted
+ * write never leaves a partially-written tv_config.json. On POSIX the file is
+ * created owner-only (0o600) so the saved client key is not world-readable.
+ */
+export function createFileConfigStore(
+  configPath: string,
+  tmpPath = `${configPath}.tmp`,
+): ConfigStore {
+  return {
+    async load() {
+      try {
+        const raw = await readFile(configPath, "utf-8");
+        return JSON.parse(raw) as TVConfig;
+      } catch {
+        return null;
+      }
+    },
+    async save(config) {
+      await writeFile(tmpPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+      await rename(tmpPath, configPath);
+    },
+  };
+}
+
+const defaultConfigStore = createFileConfigStore(CONFIG_PATH);
 
 export interface TVConnectionOptions {
   socketFactory?: TVSocketFactory;
@@ -116,6 +130,7 @@ export class TVConnection {
   private volume: number | null = null;
   private muted: boolean | null = null;
   private onStatusChange: ((status: TVStatus) => void) | null = null;
+  private onMessage: ((message: string) => void) | null = null;
   private readonly socketFactory: TVSocketFactory;
   private readonly configStore: ConfigStore;
   /** True while the current attempt is registering with a saved client key. */
@@ -130,6 +145,15 @@ export class TVConnection {
 
   setStatusCallback(cb: (status: TVStatus) => void) {
     this.onStatusChange = cb;
+  }
+
+  /** Subscribe to human-readable pairing/credential notices (never secrets). */
+  setMessageCallback(cb: (message: string) => void) {
+    this.onMessage = cb;
+  }
+
+  private notify(message: string) {
+    this.onMessage?.(message);
   }
 
   getStatus(): TVStatus {
@@ -190,14 +214,18 @@ export class TVConnection {
     this.usedSavedKey = false;
     this.keylessRetryUsed = false;
 
-    const config = await this.loadConfig();
-    if (isValidConfig(config) && config.tvIp === ip) {
-      this.clientKey = config.clientKey;
-      this.usedSavedKey = true;
-      console.log(`  Reusing saved client key for ${ip}.`);
-    } else if (config) {
-      const storedIp = isValidConfig(config) ? config.tvIp : "(unknown)";
-      console.log(`  Ignoring saved config for ${storedIp} (does not match ${ip}).`);
+    const rawConfig = await this.loadConfig();
+    if (isValidConfig(rawConfig)) {
+      if (rawConfig.tvIp === ip) {
+        this.clientKey = rawConfig.clientKey;
+        this.usedSavedKey = true;
+        console.log(`  Reusing saved client key for ${ip}.`);
+      } else {
+        console.log(`  Ignoring saved config for ${rawConfig.tvIp} (does not match ${ip}).`);
+      }
+    } else if (rawConfig !== null) {
+      console.log("  Saved TV config is malformed; ignoring it.");
+      this.notify("The saved TV config was unreadable, so a fresh pairing will be required.");
     }
 
     this.setStatus("connecting");
@@ -342,7 +370,11 @@ export class TVConnection {
             this.clientKey = returnedClientKey;
           }
           this.saveConfig().catch((e) => {
-            console.error("  Failed to save TV config:", e instanceof Error ? e.message : e);
+            const reason = e instanceof Error ? e.message : String(e);
+            console.error("  Failed to save TV config:", reason);
+            this.notify(
+              `Could not save pairing credentials (${reason}). Pairing may be required again on the next start.`,
+            );
           });
           this.setStatus("ready");
           this.setupPointerSocket().catch(() => {}); // Non-blocking

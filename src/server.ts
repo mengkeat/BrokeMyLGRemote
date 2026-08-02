@@ -19,6 +19,13 @@ function broadcast(msg: ServerMessage) {
 tv.setStatusCallback((status) => {
   broadcast({ type: "status", data: status });
 });
+tv.setStatusCallback((status) => {
+  broadcast({ type: "status", data: status });
+});
+
+tv.setMessageCallback((message) => {
+  broadcast({ type: "pairing", message } satisfies ServerMessage);
+});
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html",
