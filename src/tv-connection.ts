@@ -1,13 +1,89 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { TVConfig, TVConnectionStatus, TVStatus, LGResponse } from "./types";
+import type {
+  TVConfig,
+  TVConnectionStatus,
+  TVStatus,
+  LGResponse,
+  LGRegistrationPayload,
+} from "./types";
 import { buildRegistrationPayload } from "./types";
 
 const CONFIG_PATH = join(import.meta.dir, "..", "tv_config.json");
 
+/** WebSocket readyState value for an open connection. */
+const SOCKET_OPEN = 1;
+
+/**
+ * Minimal view of a WebSocket as used by this module. Production uses Bun's
+ * global WebSocket; tests supply a fake implementing only these members.
+ */
+export interface WebSocketLike {
+  readonly readyState: number;
+  binaryType: "arraybuffer" | "blob" | "uint8array";
+  onopen: ((event: { data?: unknown }) => void) | null;
+  onmessage: ((event: { data: string | ArrayBuffer | Uint8Array }) => void) | null;
+  onerror: ((event: unknown) => void) | null;
+  onclose: ((event: unknown) => void) | null;
+  send(data: string | ArrayBuffer | Uint8Array): void;
+  close(code?: number, reason?: string): void;
+}
+
+/** Options the connection passes to the socket factory for a URL. */
+export interface SocketFactoryOptions {
+  /** True for `wss://` URLs (self-signed TV cert accepted on the LAN). */
+  secure: boolean;
+  /** Hostname used for SNI / cert-validation bypass. */
+  serverName?: string;
+}
+
+/** Creates a WebSocket for a URL. Injectable so tests can supply a fake TV. */
+export type TVSocketFactory = (url: string, options: SocketFactoryOptions) => WebSocketLike;
+
+/** Persists pairing credentials. Injectable so tests can use a temp directory. */
+export interface ConfigStore {
+  load(): Promise<TVConfig | null>;
+  save(config: TVConfig): Promise<void>;
+}
+
+/** Bun WebSocket ctor accepts a second Bun-specific options object for TLS. */
+type BunWebSocketCtor = new (url: string, options?: unknown) => unknown;
+
+const defaultSocketFactory: TVSocketFactory = (url, options) => {
+  const Ctor = WebSocket as unknown as BunWebSocketCtor;
+  const ws = options.secure
+    ? new Ctor(url, {
+      tls: {
+        rejectUnauthorized: false,
+        serverName: options.serverName,
+      },
+    })
+    : new Ctor(url);
+  return ws as unknown as WebSocketLike;
+};
+
+const defaultConfigStore: ConfigStore = {
+  async load() {
+    try {
+      const raw = await readFile(CONFIG_PATH, "utf-8");
+      return JSON.parse(raw) as TVConfig;
+    } catch {
+      return null;
+    }
+  },
+  async save(config) {
+    await writeFile(CONFIG_PATH, JSON.stringify(config, null, 2));
+  },
+};
+
+export interface TVConnectionOptions {
+  socketFactory?: TVSocketFactory;
+  configStore?: ConfigStore;
+}
+
 export class TVConnection {
-  private mainWs: WebSocket | null = null;
-  private pointerWs: WebSocket | null = null;
+  private mainWs: WebSocketLike | null = null;
+  private pointerWs: WebSocketLike | null = null;
   private status: TVConnectionStatus = "disconnected";
   private tvIp: string | null = null;
   private clientKey: string | null = null;
@@ -19,6 +95,13 @@ export class TVConnection {
   private volume: number | null = null;
   private muted: boolean | null = null;
   private onStatusChange: ((status: TVStatus) => void) | null = null;
+  private readonly socketFactory: TVSocketFactory;
+  private readonly configStore: ConfigStore;
+
+  constructor(options: TVConnectionOptions = {}) {
+    this.socketFactory = options.socketFactory ?? defaultSocketFactory;
+    this.configStore = options.configStore ?? defaultConfigStore;
+  }
 
   setStatusCallback(cb: (status: TVStatus) => void) {
     this.onStatusChange = cb;
@@ -40,18 +123,13 @@ export class TVConnection {
   }
 
   async loadConfig(): Promise<TVConfig | null> {
-    try {
-      const raw = await readFile(CONFIG_PATH, "utf-8");
-      return JSON.parse(raw) as TVConfig;
-    } catch {
-      return null;
-    }
+    return this.configStore.load();
   }
 
   private async saveConfig() {
     if (!this.tvIp || !this.clientKey) return;
     const config: TVConfig = { tvIp: this.tvIp, clientKey: this.clientKey };
-    await writeFile(CONFIG_PATH, JSON.stringify(config, null, 2));
+    await this.configStore.save(config);
   }
 
   private nextId(): string {
@@ -60,7 +138,7 @@ export class TVConnection {
 
   private sendMain(msg: Record<string, unknown>): Promise<LGResponse> {
     return new Promise((resolve, reject) => {
-      if (!this.mainWs || this.mainWs.readyState !== WebSocket.OPEN) {
+      if (!this.mainWs || this.mainWs.readyState !== SOCKET_OPEN) {
         return reject(new Error("Main WebSocket not connected"));
       }
       const id = msg.id as string || this.nextId();
@@ -125,15 +203,10 @@ export class TVConnection {
         reject(new Error(message));
       };
 
-      const WebSocketCtor = WebSocket as unknown as new (url: string, options?: unknown) => WebSocket;
-      this.mainWs = wsUrl.startsWith("wss://")
-        ? new WebSocketCtor(wsUrl, {
-          tls: {
-            rejectUnauthorized: false,
-            serverName: this.tvIp ?? undefined,
-          },
-        })
-        : new WebSocketCtor(wsUrl);
+      this.mainWs = this.socketFactory(wsUrl, {
+        secure: wsUrl.startsWith("wss://"),
+        serverName: this.tvIp ?? undefined,
+      });
 
       this.mainWs.onopen = () => {
         clearTimeout(timeout);
@@ -171,7 +244,7 @@ export class TVConnection {
   }
 
   private async register() {
-    const payload = buildRegistrationPayload(this.clientKey ?? undefined);
+    const payload: LGRegistrationPayload = buildRegistrationPayload(this.clientKey ?? undefined);
 
     const id = this.nextId();
     this.registrationRequestId = id;
@@ -267,15 +340,10 @@ export class TVConnection {
         return;
       }
 
-      const WebSocketCtor = WebSocket as unknown as new (url: string, options?: unknown) => WebSocket;
-      this.pointerWs = socketPath.startsWith("wss://")
-        ? new WebSocketCtor(socketPath, {
-          tls: {
-            rejectUnauthorized: false,
-            serverName: this.tvIp ?? undefined,
-          },
-        })
-        : new WebSocketCtor(socketPath);
+      this.pointerWs = this.socketFactory(socketPath, {
+        secure: socketPath.startsWith("wss://"),
+        serverName: this.tvIp ?? undefined,
+      });
       this.pointerWs.binaryType = "arraybuffer";
 
       this.pointerWs.onerror = (err) => {
@@ -326,7 +394,7 @@ export class TVConnection {
   }
 
   moveMouse(dx: number, dy: number) {
-    if (!this.pointerWs || this.pointerWs.readyState !== WebSocket.OPEN) return;
+    if (!this.pointerWs || this.pointerWs.readyState !== SOCKET_OPEN) return;
     const buf = Buffer.alloc(6);
     buf.writeUInt8(1, 0);
     buf.writeUInt8(0, 1);
@@ -336,7 +404,7 @@ export class TVConnection {
   }
 
   click() {
-    if (!this.pointerWs || this.pointerWs.readyState !== WebSocket.OPEN) return;
+    if (!this.pointerWs || this.pointerWs.readyState !== SOCKET_OPEN) return;
     const down = Buffer.from([2, 1, 0, 0]);
     const up = Buffer.from([3, 1, 0, 0]);
     this.pointerWs.send(down);
