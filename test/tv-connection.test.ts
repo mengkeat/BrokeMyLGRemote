@@ -142,3 +142,28 @@ test("a rejected keyless registration fails fast without looping or re-prompting
   expect(config.current()).toEqual({ tvIp: "192.0.2.50", clientKey: "stale-key" });
   tv.disconnect();
 });
+
+test("a PROMPT intermediate response keeps the registration open until registered", async () => {
+  const { tv, fake, config } = setup();
+
+  const connectPromise = tv.connect("192.0.2.70");
+  const main = await waitFor(() => fake.sockets[0]);
+  main.open();
+
+  const reg = (await waitFor(() =>
+    main.sent.find((m) => m.type === "register"),
+  )) as { id: string };
+
+  // The TV acknowledges prompt pairing (intermediate) but does not finish yet.
+  main.receive({ id: reg.id, type: "response", payload: { pairingType: "PROMPT" } });
+  expect(tv.getStatus().pairingType).toBe("PROMPT");
+  expect(tv.getStatus().status).toBe("pairing");
+
+  // Only after the user approves on the TV does registration complete.
+  main.receive(registeredResponse(reg.id, "prompt-key"));
+  await connectPromise;
+
+  expect(tv.getStatus().status).toBe("ready");
+  expect(config.current()).toEqual({ tvIp: "192.0.2.70", clientKey: "prompt-key" });
+  tv.disconnect();
+});
