@@ -541,39 +541,37 @@ export class TVConnection {
 
   moveMouse(dx: number, dy: number) {
     if (!this.pointerWs || this.pointerWs.readyState !== SOCKET_OPEN) return;
-    const buf = Buffer.alloc(6);
-    buf.writeUInt8(1, 0);
-    buf.writeUInt8(0, 1);
-    buf.writeInt16LE(Math.round(dx), 2);
-    buf.writeInt16LE(Math.round(dy), 4);
-    this.pointerWs.send(buf);
+    // The pointer socket speaks the text protocol (line-based key:value pairs,
+    // blank-line terminated). Binary packets are ignored by webOS 4+ firmware.
+    this.pointerWs.send(`type:move\ndx:${Math.round(dx)}\ndy:${Math.round(dy)}\ndown:0\n\n`);
   }
 
   click() {
     if (!this.pointerWs || this.pointerWs.readyState !== SOCKET_OPEN) return;
-    const down = Buffer.from([2, 1, 0, 0]);
-    const up = Buffer.from([3, 1, 0, 0]);
-    this.pointerWs.send(down);
-    setTimeout(() => {
-      this.pointerWs?.send(up);
-    }, 50);
+    this.pointerWs.send("type:click\n\n");
   }
 
   async sendButton(key: string) {
     if (this.status !== "ready") throw new Error("Not connected");
-    await this.sendMain({
-      type: "request",
-      uri: "ssap://com.webos.service.networkinput/sendButton",
-      payload: { name: key },
-    });
+    if (!this.pointerWs || this.pointerWs.readyState !== SOCKET_OPEN) {
+      throw new Error("Pointer socket not connected");
+    }
+    // Remote buttons are injected through the pointer socket as line-based
+    // key:value messages terminated by a blank line. The
+    // ssap://com.webos.service.networkinput/sendButton service is absent on
+    // webOS 4+ firmware (it answers "404 no such service or method"), so the
+    // pointer socket is the only reliable button path.
+    this.pointerWs.send(`type:button\nname:${key}\n\n`);
   }
 
   async sendInput(text: string) {
     if (this.status !== "ready") throw new Error("Not connected");
+    // insertText is the endpoint this firmware exposes (sendText answers
+    // "404 no such service or method").
     await this.sendMain({
       type: "request",
-      uri: "ssap://com.webos.service.ime/sendText",
-      payload: { text, replace: 0 },
+      uri: "ssap://com.webos.service.ime/insertText",
+      payload: { text },
     });
   }
 
