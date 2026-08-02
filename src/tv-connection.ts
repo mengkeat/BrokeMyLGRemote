@@ -383,17 +383,22 @@ export class TVConnection {
           }
           this.pairingType = null;
           this.pinSubmitted = false;
-          this.saveConfig().catch((e) => {
-            const reason = e instanceof Error ? e.message : String(e);
-            console.error("  Failed to save TV config:", reason);
-            this.notify(
-              `Could not save pairing credentials (${reason}). Pairing may be required again on the next start.`,
-            );
-          });
           this.setStatus("ready");
           this.setupPointerSocket().catch(() => {}); // Non-blocking
           this.subscribeToStatus();
-          resolve();
+          // Persist the client key *before* signaling success so short-lived
+          // callers (e.g. the CLI, which exits right after connect()) never
+          // lose the pairing. A save failure stays non-fatal: the session is
+          // still usable, we just warn that a fresh pairing may be needed.
+          this.saveConfig()
+            .catch((e) => {
+              const reason = e instanceof Error ? e.message : String(e);
+              console.error("  Failed to save TV config:", reason);
+              this.notify(
+                `Could not save pairing credentials (${reason}). Pairing may be required again on the next start.`,
+              );
+            })
+            .then(() => resolve());
         } else if (resp.type === "error" || resp.returnValue === false) {
           clearTimeout(registrationTimer);
           this.pendingRequests.delete(id);
